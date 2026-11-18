@@ -58,6 +58,16 @@ constexpr float kPiF = 3.14159265358979f;
 const char* kSymbolChars =
     "←→↑↓↔↕⇒⇐√✓✗✔✘×÷·•—…–≈±∞≠≤≥⊂⊆∈∉∑∏∫∂∆∇°′″⌫⌦⏱⚡★☆▶◀▲▼●○◆◇■□αβγδεθλμπσφωΩΔΘΛΣΦΨ";
 
+// 界面/关卡/约束文案里出现过的汉字（从源码与关卡数据抽取）：
+// 与「常用简体 2500 字」取并集，既保证覆盖又不至于在高 DPI 下撑爆图集。
+const char* kChineseCorpus =
+    "一三上下不与专且业丢两严个中串为主举么义之乎乘也书了二于互五些交产享亮什仅仍从他代令以件价任份优会传估伸似但位低住体何余作你使例供依侧便保信修倍倒候值偏做停偶储像允元充先光免兜入全公六共关其具典内再冗写冲决况净准减凑几出击函分切列则刚创初删判别到制刻前剩剪副割功加务劣动助勾包化区升半单卡印即却厂历压原去参又叉及双反发取受变叠口句另只可台右号各合同名后向吞否吧含启吸周味命和品哈哪唯啰喜嗦器噪噬四回因"
+    "困围固图圆在地场均坊坏坐块坡坦垂型域基堆塞填增声壳处备复外多够大天太失头奇套好如妙始子字存孤学它守安宋完定实家容宽密察寸对导封射将小少尖尚尝就尺尽尾局层居屏展属山峰嵌工左巧差己已布师希带帧常幂幅幕干平并广序库应底度延建开式引弦弧弱弹强归当录形影往径很律得循微徽心必志忘快态怎性总恒恭息恰悉悬情想意感慢戏成或战截戳所手才打扣执扩扫扰找技把抑折抛抢护抬抵抽拆拉拖拟择括拱拿持指按挑挪振损换据捷掉排探接控推"
+    "描提插搬摊撑撤操擎支收改放效敛散数整文断斯新方施无日时明易映是显晕景晰暂暗曲更替最有服期木未末本术朴机杂权束条来板极构析枚果染柔查标栈栏树校样核根格框案档桥桩检棒棵楚模横次欢止正此步殊段母每比毕气水永求汉池没法泡波注洁洽流测浪浮消淡深混清渐渲游溢滑滚满滤漂漏演灯灰炸点炼烁烘焙然照熟爆爬父片版物特状独率玩环现珀理琥生用由画界留略病白百的盖盘目直相省看真眼着知短码砌础硬确碰示禁离秀种秒积称移程稳稿穷空"
+    "穿窗立竖章端笑笔符第等答策签简算管箭类粗精糊系素索紧红约级纪纵纹线练组细终经绑结绘给绝统继绪续维综缀缓编缘缩缺网罚罩置美考者而耗职聚背能脉自至致舒航般良色节若英范荡获菜落藏虚虽行补表衰被裁装西要覆见观规视览觉角解触计认让记许论设访证评识词试话该详语误说请读调谓谷象负责败质贴费赖走起超越趋足距跟跨路跳身车转轭轮软轴轻载较辅辑输辨边达过迎运近返还这进远连迟迭述追退适选透逐递通速造逻逼遇遍道遗遭遮避那邻"
+    "部都配采释里重量针钟钮链销错键镜长门闪闭问间阈防阴阶附际降限除随隐隔难雅集零需青静非靠面页顶项顺须预频题颜额风饰馈首驱验高鲁黑默鼠齐"
+;
+
 // 大标题字体只包含界面固定文案用到的汉字（节省图集空间，保证 44px 清晰）
 const char* kTitleGlyphs =
     "函数工坊无尽试炼第关关卡选择模式挑战成功失败评分结果大师之约入门进阶基础组合"
@@ -112,12 +122,10 @@ const char* FindScoreFont() {
     return nullptr;
 }
 
-void BuildRange(ImFontGlyphRangesBuilder& b, ImFontAtlas* atlas, bool chineseFull,
+void BuildRange(ImFontGlyphRangesBuilder& b, ImFontAtlas* atlas, bool /*chineseFull*/,
                 const std::string& extra) {
-    if (chineseFull)
-        b.AddRanges(atlas->GetGlyphRangesChineseFull());
-    else
-        b.AddRanges(atlas->GetGlyphRangesChineseSimplifiedCommon());
+    b.AddRanges(atlas->GetGlyphRangesChineseSimplifiedCommon());
+    b.AddText(kChineseCorpus);
     b.AddRanges(atlas->GetGlyphRangesGreek());
     b.AddText(kSymbolChars);
     if (!extra.empty()) b.AddText(extra.c_str());
@@ -146,9 +154,21 @@ std::string ReadAllOrEmpty(const char* path) {
 
 }  // namespace
 
+// 标题字体需要的额外文本（DPI 变化时 main.cpp 以空参重建字体，这里复用首次缓存）
+static std::string gLastHeadingExtra;
+
 FontSetupResult SetupFonts(const std::string& extraHeadingText, const std::string& logPath) {
     FontSetupResult r;
     ImGuiIO& io = ImGui::GetIO();
+    if (!extraHeadingText.empty()) gLastHeadingExtra = extraHeadingText;
+    const std::string headingExtra =
+        extraHeadingText.empty() ? gLastHeadingExtra : extraHeadingText;
+    const float sc = gUiScale > 0.0f ? gUiScale : 1.0f;
+    const float bodyPx = kFontBodySize * sc;
+    const float headingPx = kFontHeadingSize * sc;
+    const float monoPx = kFontMonoSize * sc;
+    const float titlePx = kFontTitleSize * sc;
+    const float scorePx = kFontScoreSize * sc;
     ImFontAtlas* atlas = io.Fonts;
 
     FILE* log = logPath.empty() ? nullptr : fopen(logPath.c_str(), "w");
@@ -180,6 +200,8 @@ FontSetupResult SetupFonts(const std::string& extraHeadingText, const std::strin
 
     static ImVector<ImWchar> bodyRanges;
     static ImVector<ImWchar> headRanges;
+    bodyRanges.clear();
+    headRanges.clear();
     {
         ImFontGlyphRangesBuilder b;
         BuildRange(b, atlas, /*chineseFull=*/true, std::string());
@@ -187,18 +209,18 @@ FontSetupResult SetupFonts(const std::string& extraHeadingText, const std::strin
     }
     {
         ImFontGlyphRangesBuilder b;
-        BuildRange(b, atlas, /*chineseFull=*/false, extraHeadingText);
+        BuildRange(b, atlas, /*chineseFull=*/false, headingExtra);
         b.BuildRanges(&headRanges);
     }
 
     ImFontConfig bodyCfg;
-    bodyCfg.OversampleH = 2;
+    bodyCfg.OversampleH = (gUiScale > 1.25f) ? 1 : 2;
     bodyCfg.OversampleV = 1;
     bodyCfg.PixelSnapH = false;
-    gFontBody = atlas->AddFontFromFileTTF(cnPath, 19.0f, &bodyCfg, bodyRanges.Data);
+    gFontBody = atlas->AddFontFromFileTTF(cnPath, bodyPx, &bodyCfg, bodyRanges.Data);
     if (!gFontBody) {
         atlas->Clear();
-        gFontBody = atlas->AddFontFromFileTTF(cnPath, 19.0f, &bodyCfg,
+        gFontBody = atlas->AddFontFromFileTTF(cnPath, bodyPx, &bodyCfg,
                                               atlas->GetGlyphRangesChineseSimplifiedCommon());
     }
 
@@ -206,20 +228,21 @@ FontSetupResult SetupFonts(const std::string& extraHeadingText, const std::strin
     headCfg.OversampleH = 1;
     headCfg.OversampleV = 1;
     headCfg.PixelSnapH = true;
-    gFontHeading = atlas->AddFontFromFileTTF(cnPath, 29.0f, &headCfg, headRanges.Data);
+    gFontHeading = atlas->AddFontFromFileTTF(cnPath, headingPx, &headCfg, headRanges.Data);
 
     if (monoPath) {
         ImFontConfig monoCfg;
         monoCfg.OversampleH = 2;
         monoCfg.OversampleV = 1;
         monoCfg.PixelSnapH = true;
-        gFontMono = atlas->AddFontFromFileTTF(monoPath, 27.0f, &monoCfg,
+        gFontMono = atlas->AddFontFromFileTTF(monoPath, monoPx, &monoCfg,
                                               atlas->GetGlyphRangesDefault());
     }
     if (!gFontMono) gFontMono = gFontBody;
 
     // 44px 中文大标题（仅内置固定文案字符，保证清晰且不撑爆图集）
     static ImVector<ImWchar> titleRanges;
+    titleRanges.clear();
     {
         ImFontGlyphRangesBuilder b;
         b.AddRanges(atlas->GetGlyphRangesDefault());
@@ -230,7 +253,7 @@ FontSetupResult SetupFonts(const std::string& extraHeadingText, const std::strin
     titleCfg.OversampleH = 1;
     titleCfg.OversampleV = 1;
     titleCfg.PixelSnapH = true;
-    gFontTitle = atlas->AddFontFromFileTTF(cnPath, 44.0f, &titleCfg, titleRanges.Data);
+    gFontTitle = atlas->AddFontFromFileTTF(cnPath, titlePx, &titleCfg, titleRanges.Data);
 
     // 60px 西文大数字（评级 / 总分）
     const char* scorePath = FindScoreFont();
@@ -239,7 +262,7 @@ FontSetupResult SetupFonts(const std::string& extraHeadingText, const std::strin
         scoreCfg.OversampleH = 2;
         scoreCfg.OversampleV = 2;
         scoreCfg.PixelSnapH = true;
-        gFontScore = atlas->AddFontFromFileTTF(scorePath, 60.0f, &scoreCfg,
+        gFontScore = atlas->AddFontFromFileTTF(scorePath, scorePx, &scoreCfg,
                                                atlas->GetGlyphRangesDefault());
     }
 
@@ -254,14 +277,16 @@ FontSetupResult SetupFonts(const std::string& extraHeadingText, const std::strin
         L("[fonts] build failed, falling back to body+mono only\n");
         atlas->Clear();
         ImFontConfig bcfg;
-        bcfg.OversampleH = 2;
+        bcfg.OversampleH = 1;
         bcfg.OversampleV = 1;
-        gFontBody = atlas->AddFontFromFileTTF(cnPath, 19.0f, &bcfg, bodyRanges.Data);
+        bcfg.GlyphRanges = bodyRanges.Data;
+        bcfg.GlyphRanges = bodyRanges.Data;
+        gFontBody = atlas->AddFontFromFileTTF(cnPath, bodyPx, &bcfg, bodyRanges.Data);
         if (monoPath) {
             ImFontConfig mcfg;
             mcfg.OversampleH = 2;
             mcfg.PixelSnapH = true;
-            gFontMono = atlas->AddFontFromFileTTF(monoPath, 27.0f, &mcfg,
+            gFontMono = atlas->AddFontFromFileTTF(monoPath, monoPx, &mcfg,
                                                   atlas->GetGlyphRangesDefault());
         }
         if (!gFontMono) gFontMono = gFontBody;
@@ -307,35 +332,39 @@ FontSetupResult SetupFonts(const std::string& extraHeadingText, const std::strin
 // Style
 // ---------------------------------------------------------------
 void ApplyTheme() {
+    // 重置为默认 Style 再缩放：DPI 变化时 ApplyTheme 会被重复调用，不能累乘
+    ImGui::GetStyle() = ImGuiStyle();
     ImGuiStyle& s = ImGui::GetStyle();
     ImGui::StyleColorsDark();
+    // 先按 DPI 整体缩放内置尺寸，再写入自定义尺寸（同样按逻辑像素换算）
+    s.ScaleAllSizes(gUiScale > 0.0f ? gUiScale : 1.0f);
 
-    s.WindowPadding = ImVec2(16, 14);
-    s.FramePadding = ImVec2(12, 8);
-    s.CellPadding = ImVec2(8, 6);
-    s.ItemSpacing = ImVec2(10, 10);
-    s.ItemInnerSpacing = ImVec2(8, 6);
+    s.WindowPadding = Sv(16, 14);
+    s.FramePadding = Sv(12, 8);
+    s.CellPadding = Sv(8, 6);
+    s.ItemSpacing = Sv(10, 10);
+    s.ItemInnerSpacing = Sv(8, 6);
     s.TouchExtraPadding = ImVec2(0, 0);
-    s.IndentSpacing = 18;
-    s.ScrollbarSize = 10;
-    s.GrabMinSize = 10;
+    s.IndentSpacing = S(18);
+    s.ScrollbarSize = S(10);
+    s.GrabMinSize = S(10);
 
     s.WindowBorderSize = 0;
-    s.ChildBorderSize = 1;
-    s.PopupBorderSize = 1;
+    s.ChildBorderSize = S(1);
+    s.PopupBorderSize = S(1);
     s.FrameBorderSize = 0;
 
-    s.WindowRounding = 14;
-    s.ChildRounding = 14;
-    s.FrameRounding = 8;
-    s.PopupRounding = 14;
-    s.ScrollbarRounding = 8;
-    s.GrabRounding = 6;
-    s.TabRounding = 8;
+    s.WindowRounding = S(14);
+    s.ChildRounding = S(14);
+    s.FrameRounding = S(8);
+    s.PopupRounding = S(14);
+    s.ScrollbarRounding = S(8);
+    s.GrabRounding = S(6);
+    s.TabRounding = S(8);
 
     s.WindowTitleAlign = ImVec2(0.5f, 0.5f);
     s.WindowMenuButtonPosition = ImGuiDir_None;
-    s.SeparatorTextBorderSize = 1;
+    s.SeparatorTextBorderSize = S(1);
 
     ImVec4* c = s.Colors;
     c[ImGuiCol_Text] = col::Text;
@@ -425,7 +454,7 @@ void TextHeading(const char* fmt, ...) {
 void TextMono(const ImVec4& c, const char* text, float size) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetCursorScreenPos();
-    float fs = size > 0 ? size : (gFontMono ? gFontMono->FontSize : ImGui::GetFontSize());
+    float fs = size > 0 ? S(size) : (gFontMono ? gFontMono->FontSize : ImGui::GetFontSize());
     dl->AddText(gFontMono, fs, pos, ToU32(c), text);
     ImVec2 sz = gFontMono->CalcTextSizeA(fs, FLT_MAX, 0.0f, text);
     ImGui::Dummy(sz);
@@ -451,21 +480,21 @@ void DrawCard(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float rounding
     if (border == 0) border = ToU32(col::Border);
     if (shadow) {
         for (int i = 3; i >= 1; --i) {
-            float off = 1.5f * i;
+            float off = S(1.5f) * i;
             dl->AddRectFilled(ImVec2(p0.x - off, p0.y + off), ImVec2(p1.x + off, p1.y + off + off * 0.5f),
                               AlphaU32(0xFF000000, 0.05f), rounding + off * 0.5f);
         }
     }
     dl->AddRectFilled(p0, p1, fill, rounding);
-    if (border != 0) dl->AddRect(p0, p1, border, rounding, 0, 1.0f);
+    if (border != 0) dl->AddRect(p0, p1, border, rounding, 0, S(1.0f));
 }
 
 void DrawGlow(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float rounding, ImU32 color,
               float strength) {
     for (int i = 1; i <= 4; ++i) {
-        float off = 1.0f * i;
+        float off = S(1.0f) * i;
         dl->AddRect(ImVec2(p0.x - off, p0.y - off), ImVec2(p1.x + off, p1.y + off),
-                    AlphaU32(color, 0.10f * strength / i), rounding + off, 0, 1.0f);
+                    AlphaU32(color, 0.10f * strength / i), rounding + off, 0, S(1.0f));
     }
 }
 
@@ -552,7 +581,7 @@ void DrawIcon(ImDrawList* dl, Icon icon, const ImVec2& c, float s, ImU32 col, fl
             dl->AddLine(ImVec2(c.x - h * 0.1f, c.y - h * 0.55f), ImVec2(c.x - h * 0.85f, c.y), col, th);
             dl->AddLine(ImVec2(c.x - h * 0.85f, c.y), ImVec2(c.x - h * 0.1f, c.y + h * 0.55f), col, th);
             dl->AddRect(ImVec2(c.x - h * 0.1f, c.y - h * 0.55f), ImVec2(c.x + h * 0.85f, c.y + h * 0.55f),
-                        col, 3.0f, 0, th);
+                        col, S(3.0f), 0, th);
             dl->AddLine(ImVec2(c.x + h * 0.15f, c.y - h * 0.2f), ImVec2(c.x + h * 0.55f, c.y + h * 0.2f), col, th * 0.8f);
             dl->AddLine(ImVec2(c.x + h * 0.55f, c.y - h * 0.2f), ImVec2(c.x + h * 0.15f, c.y + h * 0.2f), col, th * 0.8f);
             break;
@@ -611,14 +640,14 @@ void DrawIcon(ImDrawList* dl, Icon icon, const ImVec2& c, float s, ImU32 col, fl
             break;
         }
         case Icon::Grid:
-            dl->AddRect(ImVec2(c.x - h * 0.8f, c.y - h * 0.8f), ImVec2(c.x + h * 0.8f, c.y + h * 0.8f), col, 3, 0, th);
+            dl->AddRect(ImVec2(c.x - h * 0.8f, c.y - h * 0.8f), ImVec2(c.x + h * 0.8f, c.y + h * 0.8f), col, S(3.0f), 0, th);
             dl->AddLine(ImVec2(c.x, c.y - h * 0.8f), ImVec2(c.x, c.y + h * 0.8f), col, th * 0.7f);
             dl->AddLine(ImVec2(c.x - h * 0.8f, c.y), ImVec2(c.x + h * 0.8f, c.y), col, th * 0.7f);
             break;
         case Icon::Home:
             dl->AddLine(ImVec2(c.x - h * 0.85f, c.y - h * 0.05f), ImVec2(c.x, c.y - h * 0.85f), col, th);
             dl->AddLine(ImVec2(c.x, c.y - h * 0.85f), ImVec2(c.x + h * 0.85f, c.y - h * 0.05f), col, th);
-            dl->AddRect(ImVec2(c.x - h * 0.62f, c.y - h * 0.05f), ImVec2(c.x + h * 0.62f, c.y + h * 0.8f), col, 2, 0, th);
+            dl->AddRect(ImVec2(c.x - h * 0.62f, c.y - h * 0.05f), ImVec2(c.x + h * 0.62f, c.y + h * 0.8f), col, S(2.0f), 0, th);
             break;
         case Icon::Clock:
             dl->AddCircle(c, h * 0.8f, col, 20, th);
@@ -707,7 +736,8 @@ bool FunButton(const char* id, const char* label, const ImVec2& size, const Butt
     }
     if (bg.w > 0.001f) dl->AddRectFilled(pos, p1, ToU32(bg), rounding);
     if (st.border.w > 0.001f && enabled) {
-        dl->AddRect(pos, p1, ToU32(hovered && enabled ? col::BorderHi : st.border), rounding, 0, 1.0f);
+        dl->AddRect(pos, p1, ToU32(hovered && enabled ? col::BorderHi : st.border), rounding, 0,
+                    S(1.0f));
     }
 
     ImVec4 tc = st.text;
@@ -732,7 +762,7 @@ bool FunButton(const char* id, const char* label, const ImVec2& size, const Butt
     float startX = pos.x + (size.x - totalW) * 0.5f;
     float cy = pos.y + size.y * 0.5f;
     if (icon != Icon::None) {
-        DrawIcon(dl, icon, ImVec2(startX + iconW * 0.5f, cy), fs * 0.8f, tcol, 2.0f);
+        DrawIcon(dl, icon, ImVec2(startX + iconW * 0.5f, cy), fs * 0.8f, tcol, S(2.0f));
         startX += iconW + gap;
     }
     if (label && label[0]) {
@@ -754,10 +784,11 @@ bool MenuButton(const char* id, const char* label, const char* sub, const ImVec2
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 p1 = ImVec2(pos.x + size.x, pos.y + size.y);
     ImVec4 bg = held ? st.bgActive : (hovered ? st.bgHover : st.bg);
-    float rounding = 14.0f;
+    float rounding = S(14.0f);
     if (st.glow && hovered) DrawGlow(dl, pos, p1, rounding, ToU32(st.text), 1.0f);
     dl->AddRectFilled(pos, p1, ToU32(bg), rounding);
-    if (st.border.w > 0.001f) dl->AddRect(pos, p1, ToU32(hovered ? col::BorderHi : st.border), rounding, 0, 1.0f);
+    if (st.border.w > 0.001f)
+        dl->AddRect(pos, p1, ToU32(hovered ? col::BorderHi : st.border), rounding, 0, S(1.0f));
 
     ImU32 tcol = ToU32(col::White);
     ImU32 subcol = ToU32(st.bg.w < 0.5f || st.glow ? ImVec4(st.text.x, st.text.y, st.text.z, 0.72f)
@@ -767,30 +798,29 @@ bool MenuButton(const char* id, const char* label, const char* sub, const ImVec2
     }
 
     // 左侧图标圆
-    float iconCx = pos.x + 46.0f;
+    float iconCx = pos.x + S(46.0f);
     float cy = pos.y + size.y * 0.5f;
     if (icon != Icon::None) {
         ImU32 circleBg = st.glow ? ToU32(Alpha(col::White, 0.14f))
                                  : ToU32(Alpha(st.text, 0.10f));
-        dl->AddCircleFilled(ImVec2(iconCx, cy), 22.0f, ImVec4(hovered ? 1.0f : 0.85f, 1, 1, 1).w > 0
-                                                         ? circleBg
-                                                         : circleBg);
-        DrawIcon(dl, icon, ImVec2(iconCx, cy), 22.0f, tcol, 2.2f);
+        dl->AddCircleFilled(ImVec2(iconCx, cy), S(22.0f), circleBg);
+        DrawIcon(dl, icon, ImVec2(iconCx, cy), S(22.0f), tcol, S(2.2f));
     }
 
     ImFont* f = font ? font : gFontBody;
     if (!f) f = ImGui::GetFont();
     float fs = f->FontSize;
-    float tx = pos.x + 82.0f;
+    float tx = pos.x + S(82.0f);
     ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, label);
-    float textY = pos.y + size.y * 0.5f - ts.y * 0.5f - (sub && sub[0] ? 9.0f : 0.0f);
+    float textY = pos.y + size.y * 0.5f - ts.y * 0.5f - (sub && sub[0] ? S(9.0f) : 0.0f);
     dl->AddText(f, fs, ImVec2(tx, textY), tcol, label);
     if (sub && sub[0]) {
-        dl->AddText(gFontBody, 15.0f, ImVec2(tx, textY + ts.y + 3.0f), subcol, sub);
+        dl->AddText(gFontBody, S(15.0f), ImVec2(tx, textY + ts.y + S(3.0f)), subcol, sub);
     }
     // 右侧箭头
     if (hovered) {
-        DrawIcon(dl, Icon::Right, ImVec2(p1.x - 28.0f, cy), 15.0f, AlphaU32(tcol, 0.9f), 2.0f);
+        DrawIcon(dl, Icon::Right, ImVec2(p1.x - S(28.0f), cy), S(15.0f), AlphaU32(tcol, 0.9f),
+                 S(2.0f));
     }
     return pressed;
 }
@@ -800,10 +830,11 @@ bool MenuButton(const char* id, const char* label, const char* sub, const ImVec2
 // ---------------------------------------------------------------
 bool ToggleSwitch(const char* id, bool* value, const char* label, const char* hint) {
     ImGui::PushID(id);
-    float h = 28.0f, w = 52.0f;
+    float h = S(28.0f), w = S(52.0f);
     float labelW = label ? TextWidth(label) : 0.0f;
     float hintW = hint ? TextWidth(hint) : 0.0f;
-    float totalW = w + (labelW > 0 ? labelW + 12.0f : 0.0f) + (hintW > 0 ? hintW + 12.0f : 0.0f);
+    float totalW =
+        w + (labelW > 0 ? labelW + S(12.0f) : 0.0f) + (hintW > 0 ? hintW + S(12.0f) : 0.0f);
     ImVec2 pos = ImGui::GetCursorScreenPos();
     ImGui::InvisibleButton("##toggle", ImVec2(totalW, h + 4.0f));
     bool hovered = ImGui::IsItemHovered();
@@ -819,20 +850,20 @@ bool ToggleSwitch(const char* id, bool* value, const char* label, const char* hi
     ImU32 track = on ? ToU32(col::CyanDeep) : ToU32(col::Card);
     if (hovered) track = on ? ToU32(ImVec4(0.118f, 0.522f, 0.616f, 1.0f)) : ToU32(col::CardHi);
     dl->AddRectFilled(p0, p1, track, h * 0.5f);
-    dl->AddRect(p0, p1, ToU32(on ? col::Cyan : col::Border), h * 0.5f, 0, 1.2f);
+    dl->AddRect(p0, p1, ToU32(on ? col::Cyan : col::Border), h * 0.5f, 0, S(1.2f));
     ImVec2 knobCenter = on ? ImVec2(p1.x - h * 0.5f, cy) : ImVec2(p0.x + h * 0.5f, cy);
     dl->AddCircleFilled(knobCenter, h * 0.33f, ToU32(on ? col::White : col::TextDim));
     if (on) DrawGlow(dl, ImVec2(p1.x - h, p0.y), p1, h * 0.5f, ToU32(col::Cyan), 0.8f);
 
-    float x = pos.x + w + 12.0f;
+    float x = pos.x + w + S(12.0f);
     if (label && label[0]) {
-        dl->AddText(gFontBody, gFontBody ? gFontBody->FontSize : 19.0f,
-                    ImVec2(x, cy - (gFontBody ? gFontBody->FontSize : 19.0f) * 0.5f),
+        float lfs = gFontBody ? gFontBody->FontSize : S(19.0f);
+        dl->AddText(gFontBody, lfs, ImVec2(x, cy - lfs * 0.5f),
                     ToU32(on ? col::Text : col::TextDim), label);
-        x += labelW + 12.0f;
+        x += labelW + S(12.0f);
     }
     if (hint && hint[0]) {
-        dl->AddText(gFontBody, 15.0f, ImVec2(x, cy - 8.0f), ToU32(col::TextFaint), hint);
+        dl->AddText(gFontBody, S(15.0f), ImVec2(x, cy - S(8.0f)), ToU32(col::TextFaint), hint);
     }
     return pressed;
 }
@@ -843,43 +874,44 @@ bool ToggleSwitch(const char* id, bool* value, const char* label, const char* hi
 void Badge(const char* label, const ImVec4& fg, const ImVec4& bg, float height) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetCursorScreenPos();
-    float fs = 15.0f;
+    float fs = S(15.0f);
     ImVec2 ts = gFontBody->CalcTextSizeA(fs, FLT_MAX, 0.0f, label);
-    float w = ts.x + 16.0f;
+    float w = ts.x + S(16.0f);
     float h = height;
     ImVec2 p0(pos.x, pos.y);
     ImVec2 p1(pos.x + w, pos.y + h);
-    dl->AddRectFilled(p0, p1, ToU32(bg), 6.0f);
-    dl->AddRect(p0, p1, ToU32(ImVec4(fg.x, fg.y, fg.z, 0.35f)), 6.0f, 0, 1.0f);
-    dl->AddText(gFontBody, fs, ImVec2(pos.x + 8.0f, pos.y + (h - fs) * 0.5f - 1.0f), ToU32(fg), label);
+    dl->AddRectFilled(p0, p1, ToU32(bg), S(6.0f));
+    dl->AddRect(p0, p1, ToU32(ImVec4(fg.x, fg.y, fg.z, 0.35f)), S(6.0f), 0, S(1.0f));
+    dl->AddText(gFontBody, fs, ImVec2(pos.x + S(8.0f), pos.y + (h - fs) * 0.5f - S(1.0f)),
+                ToU32(fg), label);
     ImGui::Dummy(ImVec2(w, h));
 }
 
 void ScoreBar(const char* label, float t, const ImVec4& fill, const ImVec2& size) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetCursorScreenPos();
-    float labelW = std::min(96.0f, size.x * 0.28f);
+    float labelW = Min(S(96.0f), size.x * 0.28f);
     float barH = size.y;
-    float barX = pos.x + labelW + 10.0f;
-    float barW = size.x - labelW - 10.0f - 48.0f;
+    float barX = pos.x + labelW + S(10.0f);
+    float barW = size.x - labelW - S(10.0f) - S(48.0f);
     float cy = pos.y + barH * 0.5f;
 
-    dl->AddText(gFontBody, 16.0f, ImVec2(pos.x, cy - 9.0f), ToU32(col::TextDim), label);
+    dl->AddText(gFontBody, S(16.0f), ImVec2(pos.x, cy - S(9.0f)), ToU32(col::TextDim), label);
 
-    ImVec2 b0(barX, cy - 5.0f);
-    ImVec2 b1(barX + barW, cy + 5.0f);
-    dl->AddRectFilled(b0, b1, ToU32(Alpha(col::White, 0.06f)), 5.0f);
+    ImVec2 b0(barX, cy - S(5.0f));
+    ImVec2 b1(barX + barW, cy + S(5.0f));
+    dl->AddRectFilled(b0, b1, ToU32(Alpha(col::White, 0.06f)), S(5.0f));
     float tt = Clamp(t, 0.0f, 1.0f);
     if (tt > 0.0f) {
-        ImVec2 f1(barX + barW * tt, cy + 5.0f);
-        dl->AddRectFilled(b0, f1, ToU32(fill), 5.0f);
-        dl->AddRectFilled(ImVec2(b0.x, b0.y), ImVec2(f1.x, b0.y + 3.0f),
-                          ToU32(ImVec4(1, 1, 1, 0.18f)), 5.0f);
+        ImVec2 f1(barX + barW * tt, cy + S(5.0f));
+        dl->AddRectFilled(b0, f1, ToU32(fill), S(5.0f));
+        dl->AddRectFilled(ImVec2(b0.x, b0.y), ImVec2(f1.x, b0.y + S(3.0f)),
+                          ToU32(ImVec4(1, 1, 1, 0.18f)), S(5.0f));
     }
     char buf[16];
     snprintf(buf, sizeof(buf), "%d", (int)std::lround(tt * 100.0f));
-    ImVec2 ts = gFontBody->CalcTextSizeA(16.0f, FLT_MAX, 0.0f, buf);
-    dl->AddText(gFontBody, 16.0f, ImVec2(pos.x + size.x - ts.x, cy - 9.0f),
+    ImVec2 ts = gFontBody->CalcTextSizeA(S(16.0f), FLT_MAX, 0.0f, buf);
+    dl->AddText(gFontBody, S(16.0f), ImVec2(pos.x + size.x - ts.x, cy - S(9.0f)),
                 ToU32(tt >= 0.9f ? col::Green : col::TextDim), buf);
     ImGui::Dummy(ImVec2(size.x, barH));
 }
@@ -887,12 +919,12 @@ void ScoreBar(const char* label, float t, const ImVec4& fill, const ImVec2& size
 void StatusDot(ImDrawList* dl, const ImVec2& center, float radius, bool ok) {
     if (ok) {
         dl->AddCircleFilled(center, radius, ToU32(Alpha(col::Green, 0.16f)));
-        dl->AddCircle(center, radius, ToU32(Alpha(col::Green, 0.7f)), 24, 1.3f);
-        DrawIcon(dl, Icon::Check, center, radius * 1.1f, ToU32(col::Green), 2.0f);
+        dl->AddCircle(center, radius, ToU32(Alpha(col::Green, 0.7f)), 24, S(1.3f));
+        DrawIcon(dl, Icon::Check, center, radius * 1.1f, ToU32(col::Green), S(2.0f));
     } else {
         dl->AddCircleFilled(center, radius, ToU32(Alpha(col::Red, 0.14f)));
-        dl->AddCircle(center, radius, ToU32(Alpha(col::Red, 0.7f)), 24, 1.3f);
-        DrawIcon(dl, Icon::Cross, center, radius * 1.0f, ToU32(col::Red), 1.8f);
+        dl->AddCircle(center, radius, ToU32(Alpha(col::Red, 0.7f)), 24, S(1.3f));
+        DrawIcon(dl, Icon::Cross, center, radius * 1.0f, ToU32(col::Red), S(1.8f));
     }
 }
 
@@ -900,9 +932,10 @@ void HSep(float alpha) {
     ImVec2 pos = ImGui::GetCursorScreenPos();
     float w = ImGui::GetContentRegionAvail().x;
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    float y = pos.y + 4.0f;
-    dl->AddLine(ImVec2(pos.x, y), ImVec2(pos.x + w, y), ToU32(Alpha(col::Border, alpha)), 1.0f);
-    ImGui::Dummy(ImVec2(w, 9.0f));
+    float y = pos.y + S(4.0f);
+    dl->AddLine(ImVec2(pos.x, y), ImVec2(pos.x + w, y), ToU32(Alpha(col::Border, alpha)),
+                S(1.0f));
+    ImGui::Dummy(ImVec2(w, S(9.0f)));
 }
 
 bool BackButton(const char* id, const char* label, const ImVec2& size) {
@@ -962,11 +995,43 @@ ImU32 GradeBg(char grade) {
 void HelpTooltip(const char* text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
         ImGui::BeginTooltip();
-        ImGui::PushTextWrapPos(320.0f);
+        ImGui::PushTextWrapPos(S(320.0f));
         ImGui::TextUnformatted(text);
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
+}
+
+UiCanvas MakeCanvas() {
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImVec2 origin = ImGui::GetWindowPos();
+    ImVec2 size = ImGui::GetWindowSize();
+    (void)vp;
+    UiCanvas cv;
+    cv.origin = origin;
+    cv.size = size;
+    cv.logicalW = ToLogical(size.x);
+    cv.logicalH = ToLogical(size.y);
+    return cv;
+}
+
+ContentArea MakeContentArea(float marginX, float marginY, float topReserved,
+                            float bottomReserved, float maxContentW, float maxContentH) {
+    UiCanvas cv = MakeCanvas();
+    ContentArea a;
+    float availW = cv.logicalW - marginX * 2.0f;
+    // 超宽屏（21:9 等）：让内容区随窗口略微放宽，避免大片黑边，但仍限制上限
+    float grownMax = Min(cv.logicalW * 0.72f, maxContentW * 1.38f);
+    float limitW = Max(maxContentW, grownMax);
+    float w = Min(availW, limitW);
+    a.x = (cv.logicalW - w) * 0.5f;
+    float availH = Max(0.0f, cv.logicalH - topReserved - bottomReserved - marginY * 2.0f);
+    float h = Min(availH, maxContentH);
+    // 超高窗口（如 21:9）时内容垂直居中，避免纵向被拉散
+    a.y = topReserved + marginY + (availH - h) * 0.5f;
+    a.w = w;
+    a.h = h;
+    return a;
 }
 
 std::string EllipsizeFont(ImFont* font, float size, const std::string& text, float maxWidth) {

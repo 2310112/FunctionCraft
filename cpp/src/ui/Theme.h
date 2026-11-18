@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "imgui.h"
+#include "UiScale.h"
 
 namespace fcg {
 namespace ui {
@@ -57,6 +58,20 @@ inline T Min(T a, T b) { return a < b ? a : b; }
 
 template <typename T>
 inline T Max(T a, T b) { return a > b ? a : b; }
+
+// ---------------------------------------------------------------
+// 字体字号（逻辑基准 → 实际像素；字体图集也按同样尺寸烘焙，1:1 采样不糊）
+// ---------------------------------------------------------------
+constexpr float kFontBodySize = 19.0f;
+constexpr float kFontHeadingSize = 29.0f;
+constexpr float kFontMonoSize = 27.0f;
+constexpr float kFontTitleSize = 44.0f;
+constexpr float kFontScoreSize = 60.0f;
+inline float FontBodySize() { return S(kFontBodySize); }
+inline float FontHeadingSize() { return S(kFontHeadingSize); }
+inline float FontMonoSize() { return S(kFontMonoSize); }
+inline float FontTitleSize() { return S(kFontTitleSize); }
+inline float FontScoreSize() { return S(kFontScoreSize); }
 
 // ---------------------------------------------------------------
 // 字体（init 时由 SetupFonts 构建；不可用时为 nullptr，退回默认字体）
@@ -195,9 +210,44 @@ ImU32 GradeBg(char grade);
 // 悬停提示（延迟显示）
 void HelpTooltip(const char* text);
 
-// 中文字符串截断（按显示宽度，保留末尾 …）
+// 中文字符串截断（按显示宽度，保留末尾 …；maxWidth 为实际像素）
 std::string Ellipsize(const std::string& text, float maxWidth);
 std::string EllipsizeFont(ImFont* font, float size, const std::string& text, float maxWidth);
+
+// ---------------------------------------------------------------
+// 画布：把「逻辑像素」布局映射到当前窗口的实际像素
+// ---------------------------------------------------------------
+struct UiCanvas {
+    ImVec2 origin;      // 窗口左上角（实际像素）
+    ImVec2 size;        // 窗口尺寸（实际像素）
+    float logicalW = 0; // 逻辑宽度
+    float logicalH = 0; // 逻辑高度
+
+    // 逻辑坐标 → 实际屏幕坐标
+    ImVec2 P(float x, float y) const {
+        return ImVec2(origin.x + x * gUiScale, origin.y + y * gUiScale);
+    }
+    ImVec2 P(const ImVec2& v) const { return P(v.x, v.y); }
+    // 只换算相对窗口的偏移（实际像素）
+    ImVec2 O(float x, float y) const { return ImVec2(x * gUiScale, y * gUiScale); }
+};
+
+// 当前窗口画布
+UiCanvas MakeCanvas();
+
+// 内容区域：限制最大逻辑宽度并水平居中，垂直留白
+// marginX/marginY 为逻辑像素；maxContentW 为逻辑像素上限（默认 1600）
+struct ContentArea {
+    float x = 0, y = 0;      // 左上角（逻辑，窗口内坐标）
+    float w = 0, h = 0;      // 尺寸（逻辑）
+    float right() const { return x + w; }
+    float bottom() const { return y + h; }
+    float cx() const { return x + w * 0.5f; }
+    float cy() const { return y + h * 0.5f; }
+};
+ContentArea MakeContentArea(float marginX, float marginY, float topReserved = 0.0f,
+                            float bottomReserved = 0.0f, float maxContentW = 1600.0f,
+                            float maxContentH = 1e9f);
 
 }  // namespace ui
 }  // namespace fcg

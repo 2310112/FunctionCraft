@@ -18,6 +18,9 @@
 
 双击 `FunctionCraft.exe`（在仓库根目录的 `FunctionCraft/` 下，或 `cpp/build/bin/`）。
 
+**显示适配**：开启 Per-Monitor DPI V2，按系统缩放比例原生渲染（2560×1600@175%、4K@200% 都是 1:1 像素，不糊）；
+界面按逻辑像素布局，支持 16:9 / 16:10 / 21:9 / 4:3，超宽屏内容限宽居中；小窗口（<1180×740 逻辑像素）自动切紧凑布局。
+
 ---
 
 ## 玩法
@@ -96,6 +99,9 @@ build\bin\FunctionCraft.exe
 ## 调试与自检
 
 ```bat
+:: 多分辨率 / 多 DPI 截图矩阵（验收用）
+cpp\shots_matrix.sh
+
 :: 命令行工具
 build\fcg_cli.exe verify data\levels.json              :: 用每关参考解验证约束自洽
 build\fcg_cli.exe check  data\levels.json 1-1 "cos(x)" :: 用任意表达式检查某关
@@ -106,6 +112,8 @@ build\fcg_cli.exe parse  "1/(1+x*x)"                   :: 打印 AST / 化简结
 :: 界面截图（渲染 N 帧后存 PNG，用于自动验收）
 build\bin\FunctionCraft.exe --shot=shots\menu.png --frames=20 --scene=menu
 build\bin\FunctionCraft.exe --shot=shots\play.png --scene=play --level=1-1 --expr="cos(x)"
+:: 指定物理尺寸 + DPI 缩放（离屏渲染，不受显示器限制）
+build\bin\FunctionCraft.exe --shot=shots\u.png --size=2520x1575 --dpi-scale=1.75 --scene=play
 
 :: 单元测试（可带子串过滤）
 build\fcg_tests.exe

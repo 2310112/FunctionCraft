@@ -146,19 +146,20 @@ void App::draw() {
             float alpha = static_cast<float>(Clamp(left / 0.5, 0.0, 1.0));
             ImDrawList* fg = ImGui::GetForegroundDrawList();
             ImVec2 ts = CalcText(toast.c_str());
-            float w = ts.x + 44.0f;
-            float h = 46.0f;
+            float w = ts.x + S(44.0f);
+            float h = S(46.0f);
             ImVec2 p0(vp->WorkPos.x + (vp->WorkSize.x - w) * 0.5f,
-                      vp->WorkPos.y + vp->WorkSize.y - 96.0f);
+                      vp->WorkPos.y + vp->WorkSize.y - S(96.0f));
             ImVec2 p1(p0.x + w, p0.y + h);
             ImU32 bgc = AlphaU32(ToU32(col::Panel), 0.96f * alpha);
-            fg->AddRectFilled(ImVec2(p0.x + 2, p0.y + 4), ImVec2(p1.x + 2, p1.y + 4),
-                              AlphaU32(0xFF000000, 0.25f * alpha), 12.0f);
-            fg->AddRectFilled(p0, p1, bgc, 12.0f);
+            fg->AddRectFilled(ImVec2(p0.x + S(2.0f), p0.y + S(4.0f)),
+                              ImVec2(p1.x + S(2.0f), p1.y + S(4.0f)),
+                              AlphaU32(0xFF000000, 0.25f * alpha), S(12.0f));
+            fg->AddRectFilled(p0, p1, bgc, S(12.0f));
             ImU32 line = toastError ? ToU32(col::Red) : ToU32(col::Cyan);
-            fg->AddRectFilled(p0, ImVec2(p0.x + 4, p1.y), line, 2.0f);
+            fg->AddRectFilled(p0, ImVec2(p0.x + S(4.0f), p1.y), line, S(2.0f));
             fg->AddText(gFontBody, gFontBody->FontSize,
-                        ImVec2(p0.x + 22.0f, p0.y + (h - gFontBody->FontSize) * 0.5f),
+                        ImVec2(p0.x + S(22.0f), p0.y + (h - gFontBody->FontSize) * 0.5f),
                         AlphaU32(ToU32(col::Text), alpha), toast.c_str());
         }
     }
@@ -772,7 +773,10 @@ void App::resetProgress() {
 
 bool UiIsCompact() {
     ImGuiViewport* vp = ImGui::GetMainViewport();
-    return vp && (vp->Size.x < 1180.0f || vp->Size.y < 740.0f);
+    if (!vp) return false;
+    float lw = ToLogical(vp->Size.x);
+    float lh = ToLogical(vp->Size.y);
+    return lw < 1180.0f || lh < 740.0f;
 }
 
 void frame(App& app) {

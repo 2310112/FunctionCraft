@@ -13,6 +13,8 @@
 // App
 #include "App.h"
 #include "ShotConfig.h"
+#include "Theme.h"
+#include "UiScale.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -23,7 +25,10 @@
 #include <string>
 #include <vector>
 
-namespace fcg { namespace ui { ShotConfig g_shotConfig; } }
+namespace fcg { namespace ui {
+ShotConfig g_shotConfig;
+float gUiScale = 1.0f;  // 由 DPI 决定，见 ComputeUiScale()
+} }
 
 // ---------------------------------------------------------------
 // DirectX11 全局
@@ -34,6 +39,11 @@ static IDXGISwapChain* g_pSwapChain = nullptr;
 static bool g_SwapChainOccluded = false;
 static UINT g_ResizeWidth = 0, g_ResizeHeight = 0;
 static ID3D11RenderTargetView* g_mainRenderTargetView = nullptr;
+
+// 截图/调试参数
+static int g_forceWidth = 0;
+static int g_forceHeight = 0;
+static float g_forceUiScale = 0.0f;  // >0 时覆盖 DPI 推算值（截图验收用）
 
 static bool CreateDeviceD3D(HWND hWnd);
 static void CleanupDeviceD3D();
@@ -125,6 +135,24 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             g_ResizeWidth = (UINT)LOWORD(lParam);
             g_ResizeHeight = (UINT)HIWORD(lParam);
             return 0;
+        case WM_GETMINMAXINFO: {
+            // 最小窗口：1024x640 逻辑像素
+            auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
+            float sc = fcg::ui::gUiScale > 0.0f ? fcg::ui::gUiScale : 1.0f;
+            mmi->ptMinTrackSize.x = static_cast<LONG>(1024 * sc);
+            mmi->ptMinTrackSize.y = static_cast<LONG>(640 * sc);
+            return 0;
+        }
+        case WM_DPICHANGED: {
+            // 拖到不同缩放比例的显示器：更新缩放并重建字体
+            fcg::ui::gUiScale = static_cast<float>(HIWORD(wParam)) / 96.0f;
+            auto* suggested = reinterpret_cast<RECT*>(lParam);
+            ::SetWindowPos(hWnd, nullptr, suggested->left, suggested->top,
+                           suggested->right - suggested->left, suggested->bottom - suggested->top,
+                           SWP_NOZORDER | SWP_NOACTIVATE);
+            fcg::ui::RebuildFontsForScale();
+            return 0;
+        }
         case WM_SYSCOMMAND:
             if ((wParam & 0xfff0) == SC_KEYMENU) return 0;
             break;
@@ -160,12 +188,78 @@ static void LoadChineseFont(ImGuiIO& io) {
 }
 
 // ---------------------------------------------------------------
+// DPI 变化：重建字体图集
+// ---------------------------------------------------------------
+namespace fcg {
+namespace ui {
+void RebuildFontsForScale() {
+    if (!ImGui::GetCurrentContext()) return;
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui_ImplDX11_InvalidateDeviceObjects();
+    io.Fonts->Clear();
+    SetupFonts("", "");
+    ImGui_ImplDX11_CreateDeviceObjects();
+    ApplyTheme();
+    std::printf("[DPI] fonts rebuilt for scale %.2f\n", gUiScale);
+}
+}  // namespace ui
+}  // namespace fcg
+
+// ---------------------------------------------------------------
+// DPI / 窗口尺寸
+// ---------------------------------------------------------------
+static void ComputeUiScale(HWND hwnd) {
+    float scale = 1.0f;
+    if (g_forceUiScale > 0.0f) {
+        scale = g_forceUiScale;
+    } else {
+        UINT dpi = 96;
+        // GetDpiForWindow 需要 Win10 1607+；找不到就退回系统 DPI
+        HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
+        if (user32) {
+            using PFN_GetDpiForWindow = UINT(WINAPI*)(HWND);
+            auto fn = reinterpret_cast<PFN_GetDpiForWindow>(
+                ::GetProcAddress(user32, "GetDpiForWindow"));
+            if (fn) dpi = fn(hwnd);
+        }
+        if (dpi == 0) dpi = 96;
+        scale = static_cast<float>(dpi) / 96.0f;
+    }
+    if (scale < 0.75f) scale = 0.75f;
+    if (scale > 4.0f) scale = 4.0f;
+    fcg::ui::gUiScale = scale;
+    std::printf("[DPI] ui scale = %.2f\n", scale);
+}
+
+// 默认窗口尺寸：工作区的 90%，但不小于 1280x800 逻辑像素
+static void DefaultWindowSize(int* outW, int* outH) {
+    RECT wa{0, 0, 1920, 1080};
+    ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
+    int availW = wa.right - wa.left;
+    int availH = wa.bottom - wa.top;
+    float scale = fcg::ui::gUiScale > 0.0f ? fcg::ui::gUiScale : 1.0f;
+    // 设计稿是 1440x900 逻辑像素：按缩放换算成物理像素，再用工作区 96% 封顶
+    int wantW = static_cast<int>(1440 * scale);
+    int wantH = static_cast<int>(900 * scale);
+    int maxW = static_cast<int>(availW * 0.96f);
+    int maxH = static_cast<int>(availH * 0.96f);
+    int minW = static_cast<int>(1024 * scale);
+    int minH = static_cast<int>(640 * scale);
+    int w = wantW < maxW ? wantW : maxW;
+    int h = wantH < maxH ? wantH : maxH;
+    if (w < minW) w = minW;
+    if (h < minH) h = minH;
+    if (w > availW) w = availW;
+    if (h > availH) h = availH;
+    *outW = w;
+    *outH = h;
+}
+
+// ---------------------------------------------------------------
 // 截图支持（调试/自动验收用）
 // ---------------------------------------------------------------
 static std::string g_shotPath;
 static int g_shotFrames = 10;
-static int g_forceWidth = 0;
-static int g_forceHeight = 0;
 static int g_frameCounter = 0;
 
 static void ParseCommandLine() {
@@ -188,6 +282,8 @@ static void ParseCommandLine() {
             g_forceHeight = std::atoi(size.substr(x + 1).c_str());
         }
     }
+    std::string dpi = take("--dpi-scale=");
+    if (!dpi.empty()) g_forceUiScale = static_cast<float>(atof(dpi.c_str()));
     std::string frames = take("--frames=");
     if (!frames.empty()) g_shotFrames = std::max(1, atoi(frames.c_str()));
     fcg::ui::g_shotConfig.scene = take("--scene=");
@@ -305,6 +401,8 @@ static bool SaveBackBufferPng(const std::string& path) {
 // ---------------------------------------------------------------
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     ParseCommandLine();
+    // 必须在建窗之前：开启 Per-Monitor DPI 感知，避免 Windows 位图拉伸导致发糊
+    ImGui_ImplWin32_EnableDpiAwareness();
     // 控制台日志（调试用；Release 下无窗口）
     if (AllocConsole()) {
         FILE* f = nullptr;
@@ -322,10 +420,30 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     wc.lpszClassName = L"FunctionCraftWindow";
     ::RegisterClassExW(&wc);
 
+    // 先按 96 DPI 建一个窗口拿 DPI，再按 DPI 调整尺寸
     HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"函数工坊 FunctionCraft", WS_OVERLAPPEDWINDOW,
                                 CW_USEDEFAULT, CW_USEDEFAULT, 1440, 900, nullptr, nullptr,
                                 hInstance, nullptr);
     if (!hwnd) return 1;
+
+    ComputeUiScale(hwnd);
+
+    int winW = 0, winH = 0;
+    if (g_forceWidth > 0 && g_forceHeight > 0) {
+        // 截图验收：窗口尺寸按参数给定（物理像素）
+        RECT rc = {0, 0, g_forceWidth, g_forceHeight};
+        ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+        winW = rc.right - rc.left;
+        winH = rc.bottom - rc.top;
+    } else {
+        int cw = 0, ch = 0;
+        DefaultWindowSize(&cw, &ch);
+        RECT rc = {0, 0, cw, ch};
+        ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+        winW = rc.right - rc.left;
+        winH = rc.bottom - rc.top;
+    }
+    ::SetWindowPos(hwnd, nullptr, 0, 0, winW, winH, SWP_NOMOVE | SWP_NOZORDER);
 
     if (!CreateDeviceD3D(hwnd)) {
         CleanupDeviceD3D();
@@ -333,10 +451,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         return 1;
     }
 
-    ::ShowWindow(hwnd, SW_SHOWDEFAULT);
+    const bool shotMode = !g_shotPath.empty();
+    ::ShowWindow(hwnd, shotMode ? SW_SHOWDEFAULT : SW_SHOWMAXIMIZED);
     ::UpdateWindow(hwnd);
 
-    // 截图模式：ShowWindow 之后强制客户区尺寸（Win32 会把初始窗口钳进工作区）
     if (g_forceWidth > 0 && g_forceHeight > 0) {
         RECT rc = {0, 0, g_forceWidth, g_forceHeight};
         ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);

@@ -161,24 +161,24 @@ void DrawGrid(ImDrawList* dl, const ImVec2& r0, const ImVec2& r1, double xmin, d
     ImU32 axisCol = ToU32(Alpha(col::TextDim, 0.55f));
     if (ymin < 0 && ymax > 0) {
         float py = mapY(0.0);
-        dl->AddLine(ImVec2(r0.x, py), ImVec2(r1.x, py), axisCol, 1.4f);
+        dl->AddLine(ImVec2(r0.x, py), ImVec2(r1.x, py), axisCol, S(1.4f));
     }
     if (xmin < 0 && xmax > 0) {
         float px = mapX(0.0);
-        dl->AddLine(ImVec2(px, r0.y), ImVec2(px, r1.y), axisCol, 1.4f);
+        dl->AddLine(ImVec2(px, r0.y), ImVec2(px, r1.y), axisCol, S(1.4f));
     }
 
     // 刻度文字
-    float fs = 12.0f;
+    float fs = S(12.0f);
     ImU32 tickCol = ToU32(col::TextFaint);
-    float xLabelY = (ymin < 0 && ymax > 0) ? Clamp(mapY(0.0) + 5.0f, r0.y, r1.y - fs - 2.0f)
-                                           : r1.y - fs - 3.0f;
+    float xLabelY = (ymin < 0 && ymax > 0) ? Clamp(mapY(0.0) + S(5.0f), r0.y, r1.y - fs - S(2.0f))
+                                           : r1.y - fs - S(3.0f);
     double lastLabelX = -1e308;
     for (double x = xstart; x <= xmax + 1e-9; x += xstep) {
         if (std::fabs(x) < xstep * 1e-6) continue;
         float px = mapX(x);
         if (px < r0.x + 8 || px > r1.x - 8) continue;
-        if (px - lastLabelX < 54.0f) continue;
+        if (px - lastLabelX < S(54.0f)) continue;
         std::string s = TickLabel(x);
         ImVec2 ts = gFontBody->CalcTextSizeA(fs, FLT_MAX, 0.0f, s.c_str());
         dl->AddText(gFontBody, fs, ImVec2(px - ts.x * 0.5f, xLabelY), tickCol, s.c_str());
@@ -187,7 +187,7 @@ void DrawGrid(ImDrawList* dl, const ImVec2& r0, const ImVec2& r1, double xmin, d
     if (xmin < 0 && xmax > 0) {
         float px = mapX(0.0);
         ImVec2 ts = gFontBody->CalcTextSizeA(fs, FLT_MAX, 0.0f, "0");
-        dl->AddText(gFontBody, fs, ImVec2(px - ts.x - 4.0f, r1.y - fs - 3.0f), tickCol, "0");
+        dl->AddText(gFontBody, fs, ImVec2(px - ts.x - S(4.0f), r1.y - fs - S(3.0f)), tickCol, "0");
     }
     for (double y = ystart; y <= ymax + 1e-9; y += ystep) {
         if (std::fabs(y) < ystep * 1e-6) continue;
@@ -195,8 +195,8 @@ void DrawGrid(ImDrawList* dl, const ImVec2& r0, const ImVec2& r1, double xmin, d
         if (py < r0.y + 8 || py > r1.y - 8) continue;
         std::string s = TickLabel(y);
         ImVec2 ts = gFontBody->CalcTextSizeA(fs, FLT_MAX, 0.0f, s.c_str());
-        float tx = r0.x + 5.0f;
-        if (xmin < 0 && xmax > 0) tx = Max(r0.x + 5.0f, mapX(0.0) + 5.0f);
+        float tx = r0.x + S(5.0f);
+        if (xmin < 0 && xmax > 0) tx = Max(r0.x + S(5.0f), mapX(0.0) + S(5.0f));
         if (tx + ts.x > r1.x - 4) continue;
         dl->AddText(gFontBody, fs, ImVec2(tx, py - fs * 0.5f), tickCol, s.c_str());
     }
@@ -216,19 +216,19 @@ void DrawConstraintBands(ImDrawList* dl, const ImVec2& r0, const ImVec2& r1, con
         if (!(hi > lo)) continue;
         float p0 = mapX(lo);
         float p1 = mapX(hi);
-        if (p1 - p0 < 2.0f) continue;
+        if (p1 - p0 < S(2.0f)) continue;
         dl->AddRectFilled(ImVec2(p0, r0.y), ImVec2(p1, r1.y),
                           ToU32(Alpha(col::Cyan, drawn ? 0.028f : 0.045f)));
         // 区间边界的虚线
         if (!iv.loInf) {
-            for (float y = r0.y; y < r1.y; y += 7.0f) {
-                dl->AddLine(ImVec2(p0, y), ImVec2(p0, Min(y + 3.5f, r1.y)),
+            for (float y = r0.y; y < r1.y; y += S(7.0f)) {
+                dl->AddLine(ImVec2(p0, y), ImVec2(p0, Min(y + S(3.5f), r1.y)),
                             ToU32(Alpha(col::Cyan, 0.22f)), 1.0f);
             }
         }
         if (!iv.hiInf) {
-            for (float y = r0.y; y < r1.y; y += 7.0f) {
-                dl->AddLine(ImVec2(p1, y), ImVec2(p1, Min(y + 3.5f, r1.y)),
+            for (float y = r0.y; y < r1.y; y += S(7.0f)) {
+                dl->AddLine(ImVec2(p1, y), ImVec2(p1, Min(y + S(3.5f), r1.y)),
                             ToU32(Alpha(col::Cyan, 0.22f)), 1.0f);
             }
         }
@@ -245,25 +245,25 @@ void DrawPlotCard(App& app, const ImVec2& size) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetCursorScreenPos();
     ImVec2 p1(pos.x + size.x, pos.y + size.y);
-    DrawCard(dl, pos, p1, 16.0f, ToU32(col::Panel), ToU32(col::Border));
+    DrawCard(dl, pos, p1, S(16.0f), ToU32(col::Panel), ToU32(col::Border));
 
-    const float pad = 18.0f;
+    const float pad = S(18.0f);
     // 标题栏
-    dl->AddText(gFontHeading, 24.0f, ImVec2(pos.x + pad, pos.y + 16.0f), ToU32(col::Text),
+    dl->AddText(gFontHeading, S(24.0f), ImVec2(pos.x + pad, pos.y + S(16.0f)), ToU32(col::Text),
                 "函数图像");
     const char* sub = "实时采样";
-    float subW = gFontBody->CalcTextSizeA(14.0f, FLT_MAX, 0.0f, sub).x;
-    dl->AddText(gFontBody, 14.0f, ImVec2(p1.x - pad - subW, pos.y + 23.0f),
+    float subW = gFontBody->CalcTextSizeA(S(14.0f), FLT_MAX, 0.0f, sub).x;
+    dl->AddText(gFontBody, S(14.0f), ImVec2(p1.x - pad - subW, pos.y + S(23.0f)),
                 ToU32(col::TextFaint), sub);
 
     // 图像区域
-    ImVec2 r0(pos.x + pad, pos.y + 58.0f);
-    ImVec2 r1(p1.x - pad, p1.y - 96.0f);
+    ImVec2 r0(pos.x + pad, pos.y + S(58.0f));
+    ImVec2 r1(p1.x - pad, p1.y - S(96.0f));
     if (r1.x - r0.x < 40 || r1.y - r0.y < 40) return;
 
     dl->AddRectFilled(ImVec2(r0.x - 4, r0.y - 4), ImVec2(r1.x + 4, r1.y + 4),
-                      ToU32(ImVec4(0.051f, 0.059f, 0.078f, 1.0f)), 10.0f);
-    dl->AddRect(ImVec2(r0.x - 4, r0.y - 4), ImVec2(r1.x + 4, r1.y + 4), ToU32(col::Border), 10.0f,
+                      ToU32(ImVec4(0.051f, 0.059f, 0.078f, 1.0f)), S(10.0f));
+    dl->AddRect(ImVec2(r0.x - 4, r0.y - 4), ImVec2(r1.x + 4, r1.y + 4), ToU32(col::Border), S(10.0f),
                 0, 1.0f);
 
     double xmin, xmax;
@@ -293,9 +293,9 @@ void DrawPlotCard(App& app, const ImVec2& size) {
         auto flush = [&]() {
             if (seg.size() >= 2) {
                 dl->AddPolyline(seg.data(), static_cast<int>(seg.size()), glowCol,
-                                ImDrawFlags_None, 7.0f);
+                                ImDrawFlags_None, S(7.0f));
                 dl->AddPolyline(seg.data(), static_cast<int>(seg.size()), curveCol,
-                                ImDrawFlags_None, 2.2f);
+                                ImDrawFlags_None, S(2.2f));
             }
             seg.clear();
         };
@@ -326,58 +326,58 @@ void DrawPlotCard(App& app, const ImVec2& size) {
             double x = xmin + (mouse.x - r0.x) / (r1.x - r0.x) * (xmax - xmin);
             RealResult rr = evalReal(app.ast, "x", x);
             float px = mapX(x);
-            for (float y = r0.y; y < r1.y; y += 6.0f)
-                dl->AddLine(ImVec2(px, y), ImVec2(px, Min(y + 3.0f, r1.y)),
+            for (float y = r0.y; y < r1.y; y += S(6.0f))
+                dl->AddLine(ImVec2(px, y), ImVec2(px, Min(y + S(3.0f), r1.y)),
                             ToU32(Alpha(col::TextDim, 0.35f)), 1.0f);
             if (rr.ok && std::isfinite(rr.value)) {
                 float py = mapY(rr.value);
                 if (py >= r0.y && py <= r1.y) {
-                    dl->AddCircleFilled(ImVec2(px, py), 4.0f, ToU32(col::Amber));
-                    dl->AddCircle(ImVec2(px, py), 7.0f, ToU32(Alpha(col::Amber, 0.4f)), 16,
+                    dl->AddCircleFilled(ImVec2(px, py), S(4.0f), ToU32(col::Amber));
+                    dl->AddCircle(ImVec2(px, py), S(7.0f), ToU32(Alpha(col::Amber, 0.4f)), 16,
                                   1.0f);
                 }
                 char buf[128];
                 std::snprintf(buf, sizeof(buf), "x = %s   f(x) = %s", FormatNumber(x).c_str(),
                               FormatNumber(rr.value).c_str());
-                ImVec2 ts = gFontBody->CalcTextSizeA(13.0f, FLT_MAX, 0.0f, buf);
-                ImVec2 tp(px + 12.0f, mouse.y - 26.0f);
-                if (tp.x + ts.x > r1.x - 4) tp.x = px - ts.x - 12.0f;
+                ImVec2 ts = gFontBody->CalcTextSizeA(S(13.0f), FLT_MAX, 0.0f, buf);
+                ImVec2 tp(px + S(12.0f), mouse.y - S(26.0f));
+                if (tp.x + ts.x > r1.x - 4) tp.x = px - ts.x - S(12.0f);
                 if (tp.y < r0.y + 2) tp.y = r0.y + 2;
                 dl->AddRectFilled(ImVec2(tp.x - 6, tp.y - 4),
                                   ImVec2(tp.x + ts.x + 6, tp.y + ts.y + 4),
-                                  ToU32(Alpha(col::Panel, 0.94f)), 6.0f);
-                dl->AddText(gFontBody, 13.0f, tp, ToU32(col::Text), buf);
+                                  ToU32(Alpha(col::Panel, 0.94f)), S(6.0f));
+                dl->AddText(gFontBody, S(13.0f), tp, ToU32(col::Text), buf);
             }
         }
     } else {
         const char* msg = app.expr.empty() ? "输入表达式后，这里会实时绘制函数图像"
                                            : "表达式有误，暂无法绘制";
-        ImVec2 ts = gFontBody->CalcTextSizeA(15.0f, FLT_MAX, 0.0f, msg);
-        dl->AddText(gFontBody, 15.0f,
+        ImVec2 ts = gFontBody->CalcTextSizeA(S(15.0f), FLT_MAX, 0.0f, msg);
+        dl->AddText(gFontBody, S(15.0f),
                     ImVec2((r0.x + r1.x - ts.x) * 0.5f, (r0.y + r1.y) * 0.5f - ts.y * 0.5f),
                     ToU32(col::TextFaint), msg);
     }
     dl->PopClipRect();
 
     // 底部图例 / 表达式
-    float fy = r1.y + 16.0f;
-    dl->AddCircleFilled(ImVec2(pos.x + pad + 5, fy + 8), 5.0f, ToU32(col::Cyan));
+    float fy = r1.y + S(16.0f);
+    dl->AddCircleFilled(ImVec2(pos.x + pad + 5, fy + 8), S(5.0f), ToU32(col::Cyan));
     std::string exprText = app.expr.empty() ? std::string("f(x) = ？") : ("f(x) = " + app.expr);
-    exprText = Ellipsize(exprText, size.x - pad * 2 - 20.0f);
-    dl->AddText(gFontMono, 17.0f, ImVec2(pos.x + pad + 18, fy), ToU32(col::TextDim),
+    exprText = Ellipsize(exprText, size.x - pad * 2 - S(20.0f));
+    dl->AddText(gFontMono, S(17.0f), ImVec2(pos.x + pad + 18, fy), ToU32(col::TextDim),
                 exprText.c_str());
 
     char buf[128];
     std::snprintf(buf, sizeof(buf), "x ∈ [%s, %s] · %d 点采样", FormatNumber(xmin).c_str(),
                   FormatNumber(xmax).c_str(), sampleN);
-    dl->AddText(gFontBody, 13.0f, ImVec2(pos.x + pad, fy + 26.0f), ToU32(col::TextFaint), buf);
+    dl->AddText(gFontBody, S(13.0f), ImVec2(pos.x + pad, fy + S(26.0f)), ToU32(col::TextFaint), buf);
 
     // 约束区间图例
     if (!app.level.constraints.empty()) {
-        float lx = p1.x - pad - 96.0f;
-        dl->AddRectFilled(ImVec2(lx, fy + 32.0f), ImVec2(lx + 12, fy + 42.0f),
+        float lx = p1.x - pad - S(96.0f);
+        dl->AddRectFilled(ImVec2(lx, fy + S(32.0f)), ImVec2(lx + 12, fy + S(42.0f)),
                           ToU32(Alpha(col::Cyan, 0.18f)));
-        dl->AddText(gFontBody, 13.0f, ImVec2(lx + 17, fy + 29.0f), ToU32(col::TextFaint),
+        dl->AddText(gFontBody, S(13.0f), ImVec2(lx + 17, fy + S(29.0f)), ToU32(col::TextFaint),
                     "约束区间");
     }
     ImGui::Dummy(size);
@@ -395,7 +395,7 @@ void DrawMenuCanvas(App& app, const ImVec2& r0, const ImVec2& r1) {
 
     // 网格
     ImU32 gridCol = ToU32(Alpha(col::Cyan, 0.05f));
-    float step = 38.0f;
+    float step = S(38.0f);
     for (float x = r0.x; x <= r1.x; x += step)
         dl->AddLine(ImVec2(x, r0.y), ImVec2(x, r1.y), gridCol, 1.0f);
     for (float y = r0.y; y <= r1.y; y += step)
@@ -404,8 +404,8 @@ void DrawMenuCanvas(App& app, const ImVec2& r0, const ImVec2& r1) {
     float cx = (r0.x + r1.x) * 0.5f;
     float cy = (r0.y + r1.y) * 0.5f;
     ImU32 axisCol = ToU32(Alpha(col::TextDim, 0.28f));
-    dl->AddLine(ImVec2(r0.x, cy), ImVec2(r1.x, cy), axisCol, 1.2f);
-    dl->AddLine(ImVec2(cx, r0.y), ImVec2(cx, r1.y), axisCol, 1.2f);
+    dl->AddLine(ImVec2(r0.x, cy), ImVec2(r1.x, cy), axisCol, S(1.2f));
+    dl->AddLine(ImVec2(cx, r0.y), ImVec2(cx, r1.y), axisCol, S(1.2f));
 
     // 曲线：sin 与 cos
     auto drawCurve = [&](double (*fn)(double), double amp, double freq, ImU32 color,
@@ -420,13 +420,13 @@ void DrawMenuCanvas(App& app, const ImVec2& r0, const ImVec2& r1) {
             pts.push_back(ImVec2(r0.x + t * w, cy - static_cast<float>(y) * h * 0.34));
         }
         dl->AddPolyline(pts.data(), static_cast<int>(pts.size()),
-                        AlphaU32(color, 0.10f), ImDrawFlags_None, thick + 5.0f);
+                        AlphaU32(color, 0.10f), ImDrawFlags_None, thick + S(5.0f));
         dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), color, ImDrawFlags_None,
                         thick);
     };
-    drawCurve(static_cast<double (*)(double)>(std::sin), 1.0, 1.0, ToU32(col::Cyan), 2.2f);
+    drawCurve(static_cast<double (*)(double)>(std::sin), 1.0, 1.0, ToU32(col::Cyan), S(2.2f));
     drawCurve(static_cast<double (*)(double)>(std::cos), 0.62, 2.0,
-              ToU32(Alpha(col::Amber, 0.75f)), 1.8f);
+              ToU32(Alpha(col::Amber, 0.75f)), S(1.8f));
 
     // 边缘渐隐（模拟 vignette）
     ImU32 fade = ToU32(col::Bg);
