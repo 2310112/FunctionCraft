@@ -4,11 +4,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <map>
 #include <string>
 
 #include <windows.h>
 
 #include "core/EndlessGen.h"
+#include "core/Json.h"
 #include "core/Level.h"
 #include "LevelUi.h"
 #include "core/Parser.h"
@@ -46,13 +51,14 @@ void App::init() {
 
 
     loadGameData();
+    loadProgress();
 
     // 标题字体需要的额外文本（关卡标题）
     std::string extra;
     for (const auto& e : levels) extra += e.def.title;
     extra += "第一章第二章第三章第四章第五章第六章基础组合进阶大师无尽试炼关卡选择模式挑战";
 
-    FontSetupResult fr = SetupFonts(extra, "ui_fonts.log");
+    FontSetupResult fr = SetupFonts(extra, std::string());
     fontsReady = fr.ok;
     ApplyTheme();
 
@@ -61,6 +67,7 @@ void App::init() {
 }
 
 void App::shutdown() {
+    saveProgress();
     if (gActiveApp == this) gActiveApp = nullptr;
 }
 
@@ -70,30 +77,6 @@ void App::tick() {
     if (dt < 0.0) dt = 0.0;
     ++frameNo;
 
-    // 界面按 1440x900 设计：若窗口被系统按小屏幕压缩，则恢复到设计尺寸
-    //（必须在平台层 NewFrame 之后执行，此时主视口句柄才可用）。
-    if (!windowSized && frameNo >= 2) {
-        windowSized = true;
-        HWND hwnd = ::FindWindowW(L"FunctionCraftWindow", nullptr);
-        RECT rc{};
-        FILE* dbg = fopen("window_debug.log", "w");
-        if (dbg) { fprintf(dbg, "hwnd=%p client=%ld,%ld\n", (void*)hwnd, (long)rc.right, (long)rc.bottom); fflush(dbg); }
-        if (hwnd && ::GetClientRect(hwnd, &rc) &&
-            (rc.right < 1440 || rc.bottom < 900)) {
-            RECT want{0, 0, 1440, 900};
-            DWORD style = static_cast<DWORD>(::GetWindowLongPtrW(hwnd, GWL_STYLE));
-            DWORD exStyle = static_cast<DWORD>(::GetWindowLongPtrW(hwnd, GWL_EXSTYLE));
-            ::AdjustWindowRectEx(&want, style, FALSE, exStyle);
-            BOOL ok = ::SetWindowPos(hwnd, nullptr, 0, 0, want.right - want.left,
-                                     want.bottom - want.top,
-                                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE |
-                                         SWP_FRAMECHANGED);
-            RECT after{};
-            ::GetClientRect(hwnd, &after);
-            if (dbg) { fprintf(dbg, "setpos ok=%d want=%ldx%ld after=%ld,%ld\n", (int)ok, (long)(want.right-want.left), (long)(want.bottom-want.top), (long)after.right, (long)after.bottom); fflush(dbg); }
-        }
-        if (dbg) fclose(dbg);
-    }
 
     if (screen == Screen::Game && !hasResult && timeAttack && !timeUp) {
         double lim = timeLimit();
@@ -121,7 +104,9 @@ void App::draw() {
     ImGui::PopStyleVar(2);
 
     // 覆盖层打开时禁用底层交互（视觉上由半透明遮罩压暗）
-    bool overlayOpen = (screen == Screen::Game) && (hasResult || hintOpen);
+    if (resetConfirmOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) resetConfirmOpen = false;
+    bool overlayOpen =
+        ((screen == Screen::Game) && (hasResult || hintOpen)) || resetConfirmOpen;
     if (overlayOpen) ImGui::BeginDisabled();
     switch (screen) {
         case Screen::Menu: DrawMenu(*this); break;
@@ -186,6 +171,7 @@ void App::draw() {
             DrawHintModal(*this);
         }
     }
+    if (resetConfirmOpen) DrawResetConfirm(*this);
 
     ImGui::End();
 }
@@ -548,6 +534,7 @@ void App::submit() {
         }
     }
 
+    ++totalSubmissions;
     hasResult = true;
     resultFrame = frameNo;
     hintOpen = false;
@@ -577,6 +564,7 @@ void App::forceTimeout() {
         hasResult = true;
         resultFrame = frameNo;
         ++endlessAttempts;
+        ++totalSubmissions;
     }
 }
 
@@ -683,6 +671,108 @@ void App::applyShotConfig() {
         }
         return;
     }
+}
+
+// ---------------------------------------------------------------
+// 进度存档（exe 同目录 save.json，使用 core Json）
+// ---------------------------------------------------------------
+namespace {
+
+// exe 所在目录下的文件路径（避免依赖启动时的当前工作目录）
+std::string ExeDirFile(const char* name) {
+    wchar_t buf[MAX_PATH] = {0};
+    DWORD n = ::GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return std::string(name);
+    std::wstring path(buf, n);
+    size_t slash = path.find_last_of(L"\\/");
+    if (slash != std::wstring::npos)
+        path = path.substr(0, slash + 1);
+    else
+        path.clear();
+    std::wstring wname(name, name + std::strlen(name));
+    path += wname;
+    char out[MAX_PATH * 4] = {0};
+    int len = ::WideCharToMultiByte(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()), out,
+                                    sizeof(out) - 1, nullptr, nullptr);
+    if (len <= 0) return std::string(name);
+    return std::string(out, static_cast<size_t>(len));
+}
+
+std::string SavePath() { return ExeDirFile("save.json"); }
+
+}  // namespace
+
+void App::loadProgress() {
+    std::string err;
+    Json doc = Json::parseFile(SavePath(), &err);
+    if (!doc.isObject()) return;  // 无存档/损坏：使用空进度，不打扰玩家
+
+    endlessBest = doc["endlessBest"].asInt(0);
+    double seedNum = doc["endlessSeed"].asNumber(0.0);
+    endlessSeed = static_cast<uint64_t>(seedNum);
+    totalSubmissions = doc["totalSubmissions"].asInt(0);
+
+    const Json& lvJson = doc["levels"];
+    if (!lvJson.isObject()) return;
+    for (const std::string& id : lvJson.keys()) {
+        const Json& item = lvJson[id];
+        if (!item.isObject()) continue;
+        for (auto& entry : levels) {
+            if (entry.def.id != id) continue;
+            entry.cleared = item["cleared"].asBool(false);
+            entry.attempts = item["attempts"].asInt(0);
+            std::string grade = item["bestGrade"].asString();
+            entry.bestGrade = grade.empty() ? 0 : grade[0];
+            break;
+        }
+    }
+}
+
+void App::saveProgress() const {
+    std::map<std::string, Json> root;
+    root["version"] = Json(1.0);
+    root["endlessBest"] = Json(static_cast<double>(endlessBest));
+    root["endlessSeed"] = Json(static_cast<double>(endlessSeed));
+    root["totalSubmissions"] = Json(static_cast<double>(totalSubmissions));
+
+    std::map<std::string, Json> levelMap;
+    for (const auto& entry : levels) {
+        if (!entry.cleared && entry.attempts == 0) continue;
+        std::map<std::string, Json> item;
+        item["cleared"] = Json(entry.cleared);
+        item["bestGrade"] =
+            Json(entry.bestGrade ? std::string(1, entry.bestGrade) : std::string());
+        item["attempts"] = Json(static_cast<double>(entry.attempts));
+        levelMap[entry.def.id] = Json(item);
+    }
+    root["levels"] = Json(levelMap);
+
+    std::string text = Json(root).dump(2);
+    std::string path = SavePath();
+    std::error_code ec;
+    std::filesystem::path fsPath = std::filesystem::u8path(path);
+    std::ofstream out(fsPath, std::ios::binary | std::ios::trunc);
+    if (!out) return;
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    out.close();
+}
+
+void App::resetProgress() {
+    for (auto& entry : levels) {
+        entry.cleared = false;
+        entry.bestGrade = 0;
+        entry.attempts = 0;
+    }
+    endlessBest = 0;
+    endlessAttempts = 0;
+    totalSubmissions = 0;
+    saveProgress();
+    toastMsg(false, "进度已重置");
+}
+
+bool UiIsCompact() {
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    return vp && (vp->Size.x < 1180.0f || vp->Size.y < 740.0f);
 }
 
 void frame(App& app) {

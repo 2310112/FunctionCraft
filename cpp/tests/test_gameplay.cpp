@@ -518,7 +518,8 @@ FCG_TEST(gameplay_score_formula_and_hard_fail) {
     CHECK(!sb.feedback.empty());
     CHECK(!sb.gradeLabel.empty());
 
-    // 硬约束不通过 → total = 0、correct = false、评级 D
+    // 硬约束不通过 → total = 0、correct = false、评级 D，且四个维度全部归零
+    // （避免 UI 把未通过的提交画成满格横条）
     b.value = 2.0;
     LevelDef bad = makeLevel({b}, "");
     ScoreBreakdown sb2 = evaluateSubmission(P("x + 1"), bad, 0.0);
@@ -527,6 +528,10 @@ FCG_TEST(gameplay_score_formula_and_hard_fail) {
     CHECK_EQ(sb2.grade, 'D');
     CHECK(!sb2.feedback.empty());
     CHECK(!sb2.reports[0].ok);
+    CHECK_NEAR(sb2.precision, 0.0, 1e-12);
+    CHECK_NEAR(sb2.elegance, 0.0, 1e-12);
+    CHECK_NEAR(sb2.robustness, 0.0, 1e-12);
+    CHECK_NEAR(sb2.speed, 0.0, 1e-12);
 }
 
 FCG_TEST(gameplay_score_empty_expr) {
@@ -567,12 +572,67 @@ FCG_TEST(gameplay_score_elegance_ordering) {
     CHECK(simple.funcCalls < complex.funcCalls);
     CHECK(simple.elegance >= complex.elegance);
     CHECK(simple.total >= complex.total);  // 其他维度相同，更优雅的解总分不应更低
-    CHECK_NEAR(simple.elegance, 100.0, 1e-9);  // 函数调用 <= 2 的下限保护
+    CHECK_NEAR(simple.elegance, 100.0, 1e-9);  // 与参考解相同 → 满分
 
     // 与参考解比较：参考解更复杂时，简单的解也应拿到满分
     LevelDef L2 = makeLevel({lim}, "sin(x) + cos(x) + sin(2x)");
     const ScoreBreakdown sb = evaluateSubmission(P("sin(x)"), L2, 0.0);
     CHECK_NEAR(sb.elegance, 100.0, 1e-9);
+}
+
+// 优雅度抗"填充"测试：复杂度基于原始 AST，×0 填充、等价展开、堆函数调用
+// 都必须被如实扣分；且正确解的总分不得因此掉到 C/D。
+FCG_TEST(gameplay_score_elegance_anti_padding) {
+    // 关卡 1-1 的真实约束：ref = cos(x)（1 次函数调用 / 2 节点 / 深度 2）
+    Constraint parity = mkC(ConstraintKind::Parity);
+    parity.even = true;
+    Constraint bound = mkC(ConstraintKind::BoundaryValue);
+    bound.point = 0.0;
+    bound.value = 1.0;
+    LevelDef L = makeLevel({parity, bound}, "cos(x)");
+
+    struct CurveCase {
+        const char* expr;
+        double lo;
+        double hi;
+    };
+    const CurveCase cases[] = {
+        {"cos(x)", 99.9, 100.0},               // 与参考解相同 → 100
+        {"x^2*0+cos(x)", 40.0, 60.0},          // ×0 填充
+        {"abs(x)*0+cos(x)", 40.0, 55.0},       // ×0 填充 + 多余函数调用
+        {"1-x*x/2+x^4/24", 30.0, 45.0},        // 等价但笨重的展开式
+        {"cos(x)+sin(x)*sin(x)", 30.0, 42.0},  // 多余的函数调用
+    };
+    for (const CurveCase& c : cases) {
+        const ScoreBreakdown sb = evaluateSubmission(P(c.expr), L, 0.0);
+        if (!sb.correct) {
+            ::fcgtest::fail(std::string("该表达式应满足 1-1 的约束：") + c.expr, __FILE__,
+                            __LINE__);
+        }
+        if (sb.elegance < c.lo || sb.elegance > c.hi) {
+            ::fcgtest::fail(std::string("elegance 不在预期区间：") + c.expr + " -> " +
+                                ::fcgtest::fmt(sb.elegance) + " 不在 [" +
+                                ::fcgtest::fmt(c.lo) + ", " + ::fcgtest::fmt(c.hi) + "]",
+                            __FILE__, __LINE__);
+        }
+        // 做对了但写得啰嗦：总分至少 C/B 区间，不能掉到 D
+        CHECK(sb.total >= 70.0);
+        CHECK(sb.grade == 'S' || sb.grade == 'A' || sb.grade == 'B');
+    }
+
+    // 比参考解更简洁 → 仍满分
+    const ScoreBreakdown simpler = evaluateSubmission(P("1"), L, 0.0);
+    CHECK(simpler.correct);
+    CHECK_NEAR(simpler.elegance, 100.0, 1e-9);
+    CHECK_NEAR(simpler.total, 100.0, 1e-9);
+
+    // 极度堆砌的正确解：elegance 有下界（>=25），不会掉到 D 级
+    const ScoreBreakdown padded = evaluateSubmission(
+        P("cos(x)+x^2*0+x^4*0+x^6*0+x^8*0+x^10*0+x^12*0"), L, 0.0);
+    CHECK(padded.correct);
+    CHECK(padded.elegance >= 25.0 - 1e-9);
+    CHECK(padded.total >= 70.0);
+    CHECK(padded.grade != 'D');
 }
 
 FCG_TEST(gameplay_score_precision) {
@@ -584,14 +644,16 @@ FCG_TEST(gameplay_score_precision) {
     CHECK(exact.correct);
     CHECK_NEAR(exact.precision, 100.0, 1e-9);
 
-    // 有微小误差但仍在容差边缘外：不通过（total=0），但 precision 应低于 100
+    // 不通过硬约束时：各维度统一置 0（UI 不再画满格横条），total=0
     LevelDef L2 = makeLevel({b}, "cos(x)");
     b.value = 1.001;
     L2.constraints = {b};
     const ScoreBreakdown off = evaluateSubmission(P("x + 1"), L2, 0.0);
     CHECK(!off.correct);
-    CHECK(off.precision < 99.0);
-    CHECK(off.precision > 0.0);
+    CHECK_NEAR(off.total, 0.0, 1e-12);
+    CHECK_NEAR(off.precision, 0.0, 1e-12);
+    CHECK_NEAR(off.elegance, 0.0, 1e-12);
+    CHECK_NEAR(off.robustness, 0.0, 1e-12);
 }
 
 FCG_TEST(gameplay_score_robustness) {

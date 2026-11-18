@@ -40,6 +40,8 @@ std::string fmtPlain(double v) {
     if (std::isnan(v)) return "NaN";
     if (std::isinf(v)) return v > 0 ? "+∞" : "-∞";
     if (v == 0.0) return "0";
+    // 双精度浮点噪声：显示为 ≈0（如 sin(π) 算出 -2.4e-16）
+    if (std::fabs(v) < 1e-9) return "≈0";
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.10g", v);
     std::string s(buf);

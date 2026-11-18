@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -323,7 +324,8 @@ Json Json::parse(const std::string& text, std::string* err) {
 }
 
 Json Json::parseFile(const std::string& path, std::string* err) {
-    std::ifstream in(path, std::ios::binary);
+    // 路径按 UTF-8 解释（Windows 下需转宽字符，否则中文路径无法打开）
+    std::ifstream in(std::filesystem::u8path(path), std::ios::binary);
     if (!in) {
         if (err) *err = "无法打开文件: " + path;
         return Json();

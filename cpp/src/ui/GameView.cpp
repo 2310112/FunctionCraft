@@ -51,7 +51,8 @@ void DrawTopBar(App& app, float w) {
     }
     dl->AddText(gFontBody, 13.0f, ImVec2(x + 1.0f, origin.y + 40.0f), ToU32(col::TextFaint), sub);
 
-    // 右侧状态徽章
+    // 右侧状态徽章（小窗口只保留最重要的信息）
+    if (UiIsCompact()) return;
     float rx = origin.x + w - 22.0f;
     if (app.timeLimit() > 0.0) {
         const char* tag = "限时";
@@ -290,7 +291,7 @@ void DrawKeypad(App& app, const ImVec2& origin, float width, float height) {
          {"3", KeyKind::Num, "3", false, Icon::None, 0},
          {".", KeyKind::Num, ".", false, Icon::None, 0},
          {"0", KeyKind::Num, "0", false, Icon::None, 0},
-         {"提交", KeyKind::Submit, "", false, Icon::Check, 5}},
+         {"=", KeyKind::Op, "", false, Icon::None, 5}},
     };
 
     std::string buttonId = "##key";
@@ -312,9 +313,7 @@ void DrawKeypad(App& app, const ImVec2& origin, float width, float height) {
             }
             ImFont* labelFont = (k.kind == KeyKind::Num) ? gFontMono : gFontBody;
             bool clicked = false;
-            if (k.kind == KeyKind::Submit)
-                clicked = FunButton(id, "提交", ImVec2(kw, kh), *st, true, Icon::Check);
-            else if (k.label[0] == 0)
+            if (k.label[0] == 0)
                 clicked = FunButton(id, "", ImVec2(kw, kh), *st, true, k.icon);
             else
                 clicked = FunButton(id, k.label, ImVec2(kw, kh), *st, true, k.icon, labelFont);
@@ -341,6 +340,7 @@ void DrawKeypad(App& app, const ImVec2& origin, float width, float height) {
 // 底部操作栏
 // ---------------------------------------------------------------
 void DrawBottomBar(App& app, float w) {
+    const bool compact = UiIsCompact();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 origin = ImGui::GetWindowPos();
     float h = ImGui::GetWindowSize().y;
@@ -357,9 +357,12 @@ void DrawBottomBar(App& app, float w) {
         app.hintOpen = !app.hintOpen;
     }
     // 重新开始
-    ImGui::SetCursorScreenPos(ImVec2(p0.x + 134.0f, by));
-    if (FunButton("gv_retry", "重新开始", ImVec2(118.0f, 52.0f), StyleGhost(), true, Icon::Retry)) {
-        app.retryLevel();
+    if (!compact) {
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + 134.0f, by));
+        if (FunButton("gv_retry", "重新开始", ImVec2(118.0f, 52.0f), StyleGhost(), true,
+                      Icon::Retry)) {
+            app.retryLevel();
+        }
     }
 
     // 计时 / 倒计时
@@ -367,7 +370,7 @@ void DrawBottomBar(App& app, float w) {
     double shown = lim > 0 ? app.remainingTime() : app.elapsed();
     bool timed = lim > 0;
     bool danger = timed && shown < 30.0;
-    ImVec2 t0(p0.x + 274.0f, by + 3.0f);
+    ImVec2 t0(p0.x + (compact ? 134.0f : 274.0f), by + 3.0f);
     ImVec2 t1(t0.x + 156.0f, by + 49.0f);
     dl->AddRectFilled(t0, t1, ToU32(col::Card), 10.0f);
     dl->AddRect(t0, t1, ToU32(Alpha(danger ? col::Red : col::Border, 0.9f)), 10.0f, 0, 1.0f);
@@ -379,18 +382,21 @@ void DrawBottomBar(App& app, float w) {
     dl->AddText(gFontMono, 24.0f, ImVec2(t0.x + 38.0f, t0.y + 19.0f),
                 ToU32(danger ? col::Red : col::Text), timeStr.c_str());
 
-    // 右侧提交
-    ImGui::SetCursorScreenPos(ImVec2(p1.x - 22.0f - 210.0f, by));
-    if (FunButton("gv_submit", "提交验证", ImVec2(210.0f, 54.0f), StylePrimary(), true,
-                  Icon::Check)) {
+    // 右侧提交（主 CTA）
+    float submitW = compact ? 168.0f : 210.0f;
+    ImGui::SetCursorScreenPos(ImVec2(p1.x - 22.0f - submitW, by + (compact ? 2.0f : 0.0f)));
+    if (FunButton("gv_submit", "提交验证", ImVec2(submitW, compact ? 48.0f : 54.0f),
+                  StylePrimary(), true, Icon::Check)) {
         app.submit();
     }
 
     // 键盘提示
-    const char* tips = "回车 提交 · Backspace 删除 · ← → 移动光标 · Esc 返回";
-    ImVec2 ts = gFontBody->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, tips);
-    dl->AddText(gFontBody, 12.0f, ImVec2(p1.x - 22.0f - 210.0f - ts.x - 24.0f, by + 30.0f),
-                ToU32(col::TextFaint), tips);
+    if (!compact) {
+        const char* tips = "回车 提交 · Backspace 删除 · ← → 移动光标 · Esc 返回";
+        ImVec2 ts = gFontBody->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, tips);
+        dl->AddText(gFontBody, 12.0f, ImVec2(p1.x - 22.0f - 210.0f - ts.x - 24.0f, by + 30.0f),
+                    ToU32(col::TextFaint), tips);
+    }
 }
 
 }  // namespace
@@ -476,16 +482,15 @@ void DrawConstraintCardsList(App& app, const ImVec2& size) {
     dl->AddLine(ImVec2(x - 4.0f, y), ImVec2(p1.x - pad + 4.0f, y), ToU32(col::Border), 1.0f);
     y += 12.0f;
 
-    // 底部预留「关卡导引」卡片
-    const float infoH = 112.0f;
-    float listH = p1.y - y - infoH - 24.0f;
-    ImGui::SetCursorScreenPos(ImVec2(x - 6.0f, y));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 4));
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 8.0f);
-    ImGui::BeginChild("##constraint_cards", ImVec2(size.x - (x - p0.x) + 6.0f, listH), false,
-                      ImGuiWindowFlags_NoBackground);
-    {
-        float itemW = ImGui::GetContentRegionAvail().x - 6.0f;
+    // 底部预留「关卡导引」卡片（小窗口时隐藏，优先显示约束）
+    const bool compactPanel = UiIsCompact();
+    const float infoH = compactPanel ? 0.0f : 118.0f;
+    float listH = p1.y - y - infoH - (compactPanel ? 10.0f : 24.0f);
+    // 结果/提示覆盖层打开时，本列表改为静态绘制：
+    // ImGui 子窗口会渲染在父窗口之后，若仍用 BeginChild 会盖住覆盖层。
+    const bool overlayOpen = app.hasResult || app.hintOpen;
+    const float innerListW = size.x - (x - p0.x) + 6.0f;
+    auto drawRows = [&](ImDrawList* rdl, float itemW) {
         for (size_t i = 0; i < app.level.constraints.size(); ++i) {
             const Constraint& c = app.level.constraints[i];
             bool checked = app.hasResult && i < app.reports.size();
@@ -495,41 +500,36 @@ void DrawConstraintCardsList(App& app, const ImVec2& size) {
             ImVec2 ip = ImGui::GetCursorScreenPos();
             float textStartX = ip.x + 42.0f;
             float textW = itemW - 42.0f - 10.0f;
-            // 先测量文本高度
             ImVec2 ts = gFontBody->CalcTextSizeA(17.0f, textW, textW, desc.c_str());
             float itemH = ts.y + 22.0f;
-            if (checked && !ok && i < app.reports.size() &&
-                !app.reports[i].detail.empty()) {
+            if (checked && !ok && i < app.reports.size() && !app.reports[i].detail.empty()) {
                 itemH += 26.0f;
             }
             ImVec2 ip1(ip.x + itemW, ip.y + itemH);
 
-            // 卡片背景
             ImU32 bg = ToU32(col::Card);
             ImU32 border = ToU32(col::Border);
             if (checked) {
                 bg = ToU32(Alpha(ok ? col::Green : col::Red, 0.055f));
                 border = ToU32(Alpha(ok ? col::Green : col::Red, 0.38f));
             }
-            dl->AddRectFilled(ip, ip1, bg, 11.0f);
-            dl->AddRect(ip, ip1, border, 11.0f, 0, 1.0f);
+            rdl->AddRectFilled(ip, ip1, bg, 11.0f);
+            rdl->AddRect(ip, ip1, border, 11.0f, 0, 1.0f);
 
-            // 左侧状态图标
             ImVec2 iconCenter(ip.x + 21.0f, ip.y + 21.0f);
             if (checked) {
-                StatusDot(dl, iconCenter, 11.0f, ok);
+                StatusDot(rdl, iconCenter, 11.0f, ok);
             } else {
-                dl->AddCircleFilled(iconCenter, 11.0f, ToU32(Alpha(col::Cyan, 0.12f)));
-                dl->AddCircle(iconCenter, 11.0f, ToU32(Alpha(col::Cyan, 0.45f)), 20, 1.2f);
+                rdl->AddCircleFilled(iconCenter, 11.0f, ToU32(Alpha(col::Cyan, 0.12f)));
+                rdl->AddCircle(iconCenter, 11.0f, ToU32(Alpha(col::Cyan, 0.45f)), 20, 1.2f);
                 char num[8];
                 std::snprintf(num, sizeof(num), "%d", static_cast<int>(i) + 1);
                 ImVec2 nts = gFontBody->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, num);
-                dl->AddText(gFontBody, 12.0f,
-                            ImVec2(iconCenter.x - nts.x * 0.5f, iconCenter.y - nts.y * 0.5f),
-                            ToU32(col::Cyan), num);
+                rdl->AddText(gFontBody, 12.0f,
+                             ImVec2(iconCenter.x - nts.x * 0.5f, iconCenter.y - nts.y * 0.5f),
+                             ToU32(col::Cyan), num);
             }
 
-            // 描述文本
             ImGui::SetCursorScreenPos(ImVec2(textStartX, ip.y + 10.0f));
             ImGui::PushTextWrapPos(textStartX + textW);
             ImGui::PushStyleColor(ImGuiCol_Text, ok ? col::Text : (checked ? col::TextDim : col::Text));
@@ -537,7 +537,6 @@ void DrawConstraintCardsList(App& app, const ImVec2& size) {
             ImGui::PopStyleColor();
             ImGui::PopTextWrapPos();
 
-            // 失败原因
             if (checked && !ok && i < app.reports.size() && !app.reports[i].detail.empty()) {
                 std::string detail = "原因：" + app.reports[i].detail;
                 ImGui::SetCursorScreenPos(ImVec2(textStartX, ip.y + ts.y + 14.0f));
@@ -547,11 +546,9 @@ void DrawConstraintCardsList(App& app, const ImVec2& size) {
                 ImGui::PopStyleColor();
                 ImGui::PopTextWrapPos();
             }
-
             ImGui::SetCursorScreenPos(ImVec2(ip.x, ip1.y + 8.0f));
         }
 
-        // 结果摘要
         if (app.hasResult && !app.reports.empty()) {
             int passed = 0;
             for (const auto& r : app.reports)
@@ -560,19 +557,34 @@ void DrawConstraintCardsList(App& app, const ImVec2& size) {
             float sw = itemW;
             ImVec2 sp1(sp.x + sw, sp.y + 42.0f);
             bool allOk = passed == static_cast<int>(app.reports.size());
-            dl->AddRectFilled(sp, sp1,
-                              ToU32(Alpha(allOk ? col::Green : col::Amber, 0.10f)), 10.0f);
-            dl->AddText(gFontBody, 15.0f, ImVec2(sp.x + 14.0f, sp.y + 12.0f),
-                        ToU32(allOk ? col::Green : col::Amber),
-                        allOk ? "全部约束通过！" : "仍有约束未满足，继续调整表达式");
+            rdl->AddRectFilled(sp, sp1, ToU32(Alpha(allOk ? col::Green : col::Amber, 0.10f)),
+                               10.0f);
+            rdl->AddText(gFontBody, 15.0f, ImVec2(sp.x + 14.0f, sp.y + 12.0f),
+                         ToU32(allOk ? col::Green : col::Amber),
+                         allOk ? "全部约束通过！" : "仍有约束未满足，继续调整表达式");
             ImGui::Dummy(ImVec2(sw, 42.0f));
         }
+    };
+
+    if (overlayOpen) {
+        ImGui::SetCursorScreenPos(ImVec2(x - 6.0f, y));
+        dl->PushClipRect(ImVec2(x - 6.0f, y), ImVec2(p0.x + innerListW, y + listH), true);
+        drawRows(dl, innerListW - 12.0f);
+        dl->PopClipRect();
+    } else {
+        ImGui::SetCursorScreenPos(ImVec2(x - 6.0f, y));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 4));
+        ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 8.0f);
+        ImGui::BeginChild("##constraint_cards", ImVec2(innerListW, listH), false,
+                          ImGuiWindowFlags_NoBackground);
+        ImDrawList* cdl = ImGui::GetWindowDrawList();
+        drawRows(cdl, ImGui::GetContentRegionAvail().x - 6.0f);
+        ImGui::EndChild();
+        ImGui::PopStyleVar(2);
     }
-    ImGui::EndChild();
-    ImGui::PopStyleVar(2);
 
     // 关卡导引（底部信息卡，填充空白并给玩家方向感）
-    {
+    if (!compactPanel) {
         ImVec2 q0(p0.x + pad - 2.0f, p1.y - infoH - 12.0f);
         ImVec2 q1(p1.x - pad + 2.0f, p1.y - 12.0f);
         dl->AddRectFilled(q0, q1, ToU32(col::Card), 12.0f);
@@ -591,13 +603,17 @@ void DrawConstraintCardsList(App& app, const ImVec2& size) {
             intro = app.endless ? "满足全部约束即可进入下一关，每 10 关为 Boss 挑战。"
                                 : "满足全部约束即可通关。点击底部「提示」查看本关提示。";
         }
-        ImGui::SetCursorScreenPos(ImVec2(q0.x + 16.0f, q0.y + 58.0f));
+        // 正文区域裁切，避免行数过多时顶到「目标评级」
+        dl->PushClipRect(ImVec2(q0.x + 14.0f, q0.y + 56.0f),
+                         ImVec2(q1.x - 14.0f, q1.y - 24.0f), true);
+        ImGui::SetCursorScreenPos(ImVec2(q0.x + 16.0f, q0.y + 56.0f));
         ImGui::PushTextWrapPos(q1.x - 16.0f);
         ImGui::PushStyleColor(ImGuiCol_Text,
                               ImVec4(col::TextDim.x, col::TextDim.y, col::TextDim.z, 0.9f));
-        ImGui::TextUnformatted(EllipsizeFont(gFontBody, 12.5f, intro, q1.x - q0.x - 32.0f).c_str());
+        ImGui::TextUnformatted(intro.c_str());
         ImGui::PopStyleColor();
         ImGui::PopTextWrapPos();
+        dl->PopClipRect();
 
         // 目标评级
         const char* goal = "目标评级：B 级以上";
@@ -628,19 +644,21 @@ void DrawGame(App& app) {
     // 键盘处理（结果覆盖层打开时由 App::draw 处理）
     if (!app.hasResult && !app.hintOpen) app.handleGameKeyboard();
 
-    const float padX = 18.0f;
-    float top = origin.y + 66.0f + 14.0f;
-    float bottom = origin.y + h - 86.0f - 12.0f;
+    const bool compact = UiIsCompact();
+    const float padX = compact ? 10.0f : 18.0f;
+    float top = origin.y + 66.0f + (compact ? 8.0f : 14.0f);
+    float bottom = origin.y + h - 86.0f - (compact ? 8.0f : 12.0f);
     float mainH = bottom - top;
     float availW = w - padX * 2.0f;
-    float leftW = Clamp(w * 0.235f, 300.0f, 350.0f);
-    float rightW = Clamp(w * 0.315f, 380.0f, 470.0f);
-    float gap = 14.0f;
+    float leftW = compact ? Clamp(w * 0.32f, 190.0f, 250.0f) : Clamp(w * 0.235f, 300.0f, 350.0f);
+    float rightW = compact ? 0.0f : Clamp(w * 0.315f, 380.0f, 470.0f);
+    float gap = compact ? 8.0f : 14.0f;
     float centerW = availW - leftW - rightW - gap * 2.0f;
-    if (centerW < 420.0f) {
+    if (!compact && centerW < 420.0f) {
         centerW = 420.0f;
         rightW = availW - leftW - centerW - gap * 2.0f;
     }
+    if (centerW < 260.0f) centerW = 260.0f;
     float leftX = origin.x + padX;
     float centerX = leftX + leftW + gap;
     float rightX = centerX + centerW + gap;
@@ -650,7 +668,7 @@ void DrawGame(App& app) {
     DrawConstraintCardsList(app, ImVec2(leftW, mainH));
 
     // 中：表达式 + 键盘
-    float exprH = 122.0f;
+    float exprH = compact ? 104.0f : 122.0f;
     ImGui::SetCursorScreenPos(ImVec2(centerX, top));
     DrawExprCard(app, ImVec2(centerW, exprH));
     float keypadTop = top + exprH + 12.0f;
@@ -667,9 +685,11 @@ void DrawGame(App& app) {
                     ToU32(col::TextFaint), tip);
     }
 
-    // 右：函数图像
-    ImGui::SetCursorScreenPos(ImVec2(rightX, top));
-    DrawPlotCard(app, ImVec2(rightW, mainH));
+    // 右：函数图像（小窗口隐藏）
+    if (rightW > 200.0f) {
+        ImGui::SetCursorScreenPos(ImVec2(rightX, top));
+        DrawPlotCard(app, ImVec2(rightW, mainH));
+    }
 
     DrawBottomBar(app, w);
 }

@@ -117,6 +117,8 @@ std::string renderPtr(const Expr* node, int minPrec);
 // 子节点在给定上下文中的最小优先级要求
 bool needsParen(const Expr* child, int minPrec) {
     if (!child) return false;
+    // 负数字面量：作为幂底数或一元上下文时必须加括号，否则 (-2)^x 会被打印成 -2^x
+    if (child->op == Op::Num && child->num < 0 && minPrec >= kPrecUnary) return true;
     // 负项：仅在"右操作数 / 幂底数"上下文加括号（-a·b、-a+b 无需括号）
     if (child->op == Op::Neg) return minPrec >= kPrecMul + 1;
     return precOf(child->op) < minPrec;

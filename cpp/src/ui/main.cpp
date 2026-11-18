@@ -164,6 +164,8 @@ static void LoadChineseFont(ImGuiIO& io) {
 // ---------------------------------------------------------------
 static std::string g_shotPath;
 static int g_shotFrames = 10;
+static int g_forceWidth = 0;
+static int g_forceHeight = 0;
 static int g_frameCounter = 0;
 
 static void ParseCommandLine() {
@@ -177,6 +179,15 @@ static void ParseCommandLine() {
         return cmd.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
     };
     g_shotPath = take("--shot=");
+    std::string size = take("--size=");
+    if (!size.empty()) {
+        size_t x = size.find('x');
+        if (x == std::string::npos) x = size.find('X');
+        if (x != std::string::npos) {
+            g_forceWidth = std::atoi(size.substr(0, x).c_str());
+            g_forceHeight = std::atoi(size.substr(x + 1).c_str());
+        }
+    }
     std::string frames = take("--frames=");
     if (!frames.empty()) g_shotFrames = std::max(1, atoi(frames.c_str()));
     fcg::ui::g_shotConfig.scene = take("--scene=");
@@ -214,12 +225,14 @@ static bool SaveBackBufferPng(const std::string& path) {
                 static_cast<const unsigned char*>(mapped.pData) + static_cast<size_t>(y) * mapped.RowPitch;
             unsigned char* dst = rgb.data() + static_cast<size_t>(y) * w * 3;
             for (int x = 0; x < w; ++x) {
-                dst[x * 3 + 0] = src[x * 4 + 2];
+                // DXGI_FORMAT_R8G8B8A8_UNORM：内存顺序已是 R,G,B,A
+                dst[x * 3 + 0] = src[x * 4 + 0];
                 dst[x * 3 + 1] = src[x * 4 + 1];
-                dst[x * 3 + 2] = src[x * 4 + 0];
+                dst[x * 3 + 2] = src[x * 4 + 2];
             }
         }
         ok = stbi_write_png(path.c_str(), w, h, 3, rgb.data(), w * 3) != 0;
+        std::printf("[SHOT] %dx%d -> %s\n", w, h, path.c_str());
         g_pd3dDeviceContext->Unmap(staging, 0);
     }
     staging->Release();
@@ -258,6 +271,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         CleanupDeviceD3D();
         ::UnregisterClassW(wc.lpszClassName, hInstance);
         return 1;
+    }
+
+    // 截图模式：强制窗口客户区尺寸（宿主屏幕小于目标尺寸时 Win32 会钳窗口）
+    if (g_forceWidth > 0 && g_forceHeight > 0) {
+        RECT rc = {0, 0, g_forceWidth, g_forceHeight};
+        ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+        ::SetWindowPos(hwnd, HWND_TOP, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
+                       SWP_NOZORDER | SWP_FRAMECHANGED);
     }
 
     ::ShowWindow(hwnd, SW_SHOWDEFAULT);
@@ -321,8 +342,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         g_SwapChainOccluded = (hr == DXGI_STATUS_OCCLUDED);
 
         if (!g_shotPath.empty() && ++g_frameCounter >= g_shotFrames) {
-            bool ok = SaveBackBufferPng(g_shotPath);
-            std::printf("[SHOT] %s -> %s\n", ok ? "saved" : "FAILED", g_shotPath.c_str());
+            SaveBackBufferPng(g_shotPath);
             done = true;
         }
     }

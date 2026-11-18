@@ -1,4 +1,0 @@
-[fonts] initial atlas: 0x0 fonts=1
-[fonts] chinese=C:\Windows\Fonts\msyh.ttc mono=C:\Windows\Fonts\consola.ttf
-[fonts] build=1 atlas=4096x4096 fonts=5
-[fonts] glyphs: pi=1 sqrt=1 check=0 arrow=1 headingPi=1

@@ -47,7 +47,8 @@ struct App {
     int endlessIndex = 1;      // 无尽模式当前关序号（从 1 开始）
     uint64_t endlessSeed = 0;  // 无尽模式随机种子
     int endlessBest = 0;       // 已通过的最高关数
-    int endlessAttempts = 0;   // 无尽模式总提交次数
+    int endlessAttempts = 0;   // 无尽模式提交次数
+    int totalSubmissions = 0;  // 全部提交次数（存档统计）
     int levelIndex = 0;        // 关卡模式下 levels 的下标
     LevelDef level;            // 当前关卡
     double levelStart = 0.0;   // ImGui::GetTime() 时间戳
@@ -71,6 +72,7 @@ struct App {
     // ---------------- 提示 ----------------
     bool hintOpen = false;        // 提示气泡（关卡 hint）
     bool referenceOpen = false;   // 是否显示参考解
+    bool resetConfirmOpen = false;  // 重置进度确认框
 
     // ---------------- 轻提示（toast） ----------------
     std::string toast;
@@ -81,7 +83,6 @@ struct App {
     double now = 0.0;
     double dt = 0.0;
     int frameNo = 0;
-    bool windowSized = false;  // 是否已确保窗口尺寸不小于设计分辨率
 
     // ---------------- 生命周期 ----------------
     void init();
@@ -91,6 +92,9 @@ struct App {
 
     // ---------------- 数据 ----------------
     void loadGameData();
+    void loadProgress();
+    void saveProgress() const;
+    void resetProgress();
     LevelDef& currentLevel() { return level; }
     const LevelDef& currentLevel() const { return level; }
     bool hasNextLevel() const;
@@ -145,6 +149,8 @@ void DrawGame(App& app);
 void DrawResultOverlay(App& app);
 void DrawPlotCard(App& app, const ImVec2& size);   // 右侧函数图像卡片
 void DrawHintModal(App& app);                      // 提示弹窗（关卡提示）
+void DrawResetConfirm(App& app);                   // 重置进度确认框
+bool UiIsCompact();                                // 当前是否处于小窗口紧凑布局
 void DrawMenuCanvas(App& app, const ImVec2& min, const ImVec2& max);  // 菜单背景装饰曲线
 
 }  // namespace ui

@@ -36,6 +36,7 @@ file(GLOB FCG_TEST_SOURCES CONFIGURE_DEPENDS tests/*.cpp)
 add_executable(fcg_tests ${FCG_TEST_SOURCES})
 target_link_libraries(fcg_tests PRIVATE fcg_core)
 target_include_directories(fcg_tests PRIVATE tests)
+target_compile_definitions(fcg_tests PRIVATE FCG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # ---------------------------------------------------------------
 # 命令行工具（关卡自检 / 引擎调试）

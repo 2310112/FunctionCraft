@@ -1,6 +1,15 @@
+# 构建产物
 build/
-shots/
+build_*/
 *.obj
 *.pdb
 *.ilk
+*.lib
+*.exp
 .vs/
+
+# 调试输出
+shots/*
+!shots/.gitkeep
+*.log
+save.json

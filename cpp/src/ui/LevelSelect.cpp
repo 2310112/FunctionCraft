@@ -440,12 +440,13 @@ void DrawLevelSelect(App& app) {
 
     if (app.hoveredLevel < 0) app.hoveredLevel = 0;
 
+    const bool compact = UiIsCompact();
     float top = origin.y + 90.0f;
     float bottom = origin.y + h - 24.0f;
     float contentH = bottom - top;
 
     // ---------- 左侧关卡列表 ----------
-    float leftW = Clamp(w * 0.31f, 360.0f, 460.0f);
+    float leftW = compact ? Min(w - 48.0f, 620.0f) : Clamp(w * 0.31f, 360.0f, 460.0f);
     float listX = origin.x + 24.0f;
     ImVec2 listP0(listX, top);
     ImVec2 listP1(listX + leftW, bottom);
@@ -464,6 +465,7 @@ void DrawLevelSelect(App& app) {
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 8.0f);
     ImGui::BeginChild("##level_list", ImVec2(leftW - 28.0f, contentH - 74.0f), false,
                       ImGuiWindowFlags_NoBackground);
+        ImDrawList* cdl = ImGui::GetWindowDrawList();  // 子窗口裁剪用
     {
         int lastChapter = -1;
         float innerW = ImGui::GetContentRegionAvail().x;
@@ -475,11 +477,11 @@ void DrawLevelSelect(App& app) {
                 char title[96];
                 std::snprintf(title, sizeof(title), "%s · %s", ChapterRoman(def.chapter),
                               info->name);
-                dl->AddText(gFontBody, 16.0f, ImGui::GetCursorScreenPos(), ToU32(col::TextDim),
+                cdl->AddText(gFontBody, 16.0f, ImGui::GetCursorScreenPos(), ToU32(col::TextDim),
                             title);
                 // 章说明
                 ImVec2 p = ImGui::GetCursorScreenPos();
-                dl->AddText(gFontBody, 12.0f, ImVec2(p.x, p.y + 22.0f), ToU32(col::TextFaint),
+                cdl->AddText(gFontBody, 12.0f, ImVec2(p.x, p.y + 22.0f), ToU32(col::TextFaint),
                             info->desc);
                 ImGui::Dummy(ImVec2(innerW, 48.0f));
             }
@@ -492,7 +494,8 @@ void DrawLevelSelect(App& app) {
     ImGui::EndChild();
     ImGui::PopStyleVar(2);
 
-    // ---------- 右侧：详情 + 进度 ----------
+    // ---------- 右侧：详情 + 进度（小窗口隐藏，只保留列表） ----------
+    if (compact) return;
     float rightX = listP1.x + 18.0f;
     float rightW = origin.x + w - 24.0f - rightX;
     float detailH = contentH * 0.63f;

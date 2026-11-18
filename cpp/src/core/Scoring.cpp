@@ -35,11 +35,6 @@ bool finiteAt(const ExprP& f, const std::string& var, double x, double* out) {
     return true;
 }
 
-// 复杂度度量：函数调用代价高，节点数次之
-double complexityOf(int funcCalls, int nodes) {
-    return static_cast<double>(funcCalls) + 0.35 * static_cast<double>(nodes);
-}
-
 bool finiteInterval(const Interval& iv, double* a, double* b) {
     if (iv.loInf || iv.hiInf) return false;
     if (!(iv.hi > iv.lo)) return false;
@@ -110,26 +105,43 @@ double computePrecision(const ExprP& f, const LevelDef& level) {
 
 // -----------------------------------------------------------------
 // 优雅度：与参考解的 AST 复杂度比较，越简洁越高
+//
+// 复杂度 = 函数调用数 + 节点数 + 嵌套深度（均以参考解为基准归一化）：
+//   callsRatio = (curCalls + 1) / (refCalls + 1)   // +1 避免无函数调用时除零
+//   ratio = 0.45*callsRatio^2 + 0.45*nodesRatio + 0.10*depthRatio
+//   elegance = 100 * ratio^(-0.8)，ratio <= 1（不劣于参考解）直接给 100
+//
+// 设计要点：
+//   * 复杂度一律基于玩家提交的**原始 AST**（不做化简），因此
+//     x^2*0+cos(x)、abs(x)*0+cos(x) 这类"用 ×0 填充"的解会被如实扣分；
+//   * callsRatio 取平方，重罚堆砌函数调用的解；
+//   * 没有"calls<=2 就满分"的硬下限，只有"不劣于参考解才满分"；
+//   * 下界 25：做对了但写得很啰嗦也至少落在 B 级附近，避免"对了却不及格"。
 // -----------------------------------------------------------------
-double computeElegance(const ExprP& f, const LevelDef& level, int funcCalls, int nodes) {
+double computeElegance(const LevelDef& level, int funcCalls, int nodes, int depth) {
     int refFuncs = 3;
     int refNodes = 9;
+    int refDepth = 4;
     if (!level.reference.empty()) {
         ParseError pe;
         ExprP ref = parseExpr(level.reference, &pe);
         if (ref) {
             refFuncs = funcCallCount(ref);
             refNodes = nodeCount(ref);
+            refDepth = maxDepth(ref);
         }
     }
-    // 下限保护：函数调用很少时直接给满分
-    if (funcCalls <= 2) return 100.0;
-    const double mine = complexityOf(funcCalls, nodes);
-    const double ref = complexityOf(refFuncs, refNodes);
-    if (ref <= 0.0) return 100.0;
-    if (mine <= ref) return 100.0;
-    const double score = 100.0 * ref / mine;
-    return std::max(0.0, std::min(100.0, score));
+    const double refCalls = static_cast<double>(refFuncs) + 1.0;
+    const double refNodeCnt = std::max(1.0, static_cast<double>(refNodes));
+    const double refDepthCnt = std::max(1.0, static_cast<double>(refDepth));
+    const double callsRatio = (static_cast<double>(funcCalls) + 1.0) / refCalls;
+    const double nodesRatio = static_cast<double>(nodes) / refNodeCnt;
+    const double depthRatio = static_cast<double>(depth) / refDepthCnt;
+    const double ratio =
+        0.45 * callsRatio * callsRatio + 0.45 * nodesRatio + 0.10 * depthRatio;
+    if (ratio <= 1.0) return 100.0;
+    const double score = 100.0 * std::pow(ratio, -0.8);
+    return std::max(25.0, std::min(100.0, score));
 }
 
 // -----------------------------------------------------------------
@@ -310,7 +322,7 @@ ScoreBreakdown evaluateSubmission(const ExprP& f, const LevelDef& level, double 
     sb.correct = allOk;
 
     sb.precision = computePrecision(f, level);
-    sb.elegance = computeElegance(f, level, sb.funcCalls, sb.nodeCnt);
+    sb.elegance = computeElegance(level, sb.funcCalls, sb.nodeCnt, maxDepth(f));
     sb.robustness = computeRobustness(f, level, sb.correct, hardTotal, hardPass);
 
     if (level.timeLimit > 0.0) {
@@ -327,6 +339,11 @@ ScoreBreakdown evaluateSubmission(const ExprP& f, const LevelDef& level, double 
                             kWeightSpeed * sb.speed / 100.0);
         sb.total = std::max(0.0, std::min(100.0, sb.total));
     } else {
+        // 未通过硬约束：各维度一律置 0，避免 UI 把未通过的提交画成"满格横条"
+        sb.precision = 0.0;
+        sb.elegance = 0.0;
+        sb.robustness = 0.0;
+        sb.speed = 0.0;
         sb.total = 0.0;
     }
     sb.grade = sb.correct ? gradeOf(sb.total) : 'D';
