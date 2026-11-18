@@ -1,0 +1,6 @@
+build/
+shots/
+*.obj
+*.pdb
+*.ilk
+.vs/
