@@ -1,0 +1,32 @@
+# ---------- 构建产物 ----------
+build/
+build_*/
+out/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+*.zip
+.vs/
+.vscode/
+CMakeCache.txt
+CMakeFiles/
+
+# ---------- 调试 / 截图 ----------
+shots/
+shots_matrix_run/
+*.log
+
+# ---------- 存档 ----------
+save.json
+
+# ---------- 发布包（用 GitHub Releases 分发） ----------
+FunctionCraft/
+
+# ---------- 系统 ----------
+Thumbs.db
+desktop.ini
+.DS_Store
