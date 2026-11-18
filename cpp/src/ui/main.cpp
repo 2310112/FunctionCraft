@@ -195,6 +195,66 @@ static void ParseCommandLine() {
     fcg::ui::g_shotConfig.expression = take("--expr=");
 }
 
+// 离屏渲染：把 ImGui 画到指定尺寸的纹理上再存 PNG（不受窗口/屏幕尺寸限制）
+static bool RenderOffscreenAndSave(const std::string& path, int w, int h) {
+    D3D11_TEXTURE2D_DESC td{};
+    td.Width = static_cast<UINT>(w);
+    td.Height = static_cast<UINT>(h);
+    td.MipLevels = 1;
+    td.ArraySize = 1;
+    td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.SampleDesc.Count = 1;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_RENDER_TARGET;
+
+    ID3D11Texture2D* tex = nullptr;
+    if (FAILED(g_pd3dDevice->CreateTexture2D(&td, nullptr, &tex)) || !tex) return false;
+    ID3D11RenderTargetView* rtv = nullptr;
+    if (FAILED(g_pd3dDevice->CreateRenderTargetView(tex, nullptr, &rtv))) {
+        tex->Release();
+        return false;
+    }
+
+    const float clear[4] = {0.08f, 0.09f, 0.11f, 1.0f};
+    D3D11_VIEWPORT vp{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h), 0.0f, 1.0f};
+    g_pd3dDeviceContext->OMSetRenderTargets(1, &rtv, nullptr);
+    g_pd3dDeviceContext->RSSetViewports(1, &vp);
+    g_pd3dDeviceContext->ClearRenderTargetView(rtv, clear);
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+    // 回读到 CPU
+    D3D11_TEXTURE2D_DESC sd = td;
+    sd.Usage = D3D11_USAGE_STAGING;
+    sd.BindFlags = 0;
+    sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ID3D11Texture2D* staging = nullptr;
+    bool ok = false;
+    if (SUCCEEDED(g_pd3dDevice->CreateTexture2D(&sd, nullptr, &staging))) {
+        g_pd3dDeviceContext->CopyResource(staging, tex);
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (SUCCEEDED(g_pd3dDeviceContext->Map(staging, 0, D3D11_MAP_READ, 0, &mapped))) {
+            std::vector<unsigned char> rgb(static_cast<size_t>(w) * h * 3);
+            for (int y = 0; y < h; ++y) {
+                const unsigned char* src = static_cast<const unsigned char*>(mapped.pData) +
+                                           static_cast<size_t>(y) * mapped.RowPitch;
+                unsigned char* dst = rgb.data() + static_cast<size_t>(y) * w * 3;
+                for (int x = 0; x < w; ++x) {
+                    dst[x * 3 + 0] = src[x * 4 + 0];
+                    dst[x * 3 + 1] = src[x * 4 + 1];
+                    dst[x * 3 + 2] = src[x * 4 + 2];
+                }
+            }
+            ok = stbi_write_png(path.c_str(), w, h, 3, rgb.data(), w * 3) != 0;
+            g_pd3dDeviceContext->Unmap(staging, 0);
+        }
+        staging->Release();
+    }
+    rtv->Release();
+    tex->Release();
+    g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
+    return ok;
+}
+
 static bool SaveBackBufferPng(const std::string& path) {
     ID3D11Texture2D* backBuffer = nullptr;
     if (FAILED(g_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer))) || !backBuffer)
@@ -273,16 +333,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         return 1;
     }
 
-    // 截图模式：强制窗口客户区尺寸（宿主屏幕小于目标尺寸时 Win32 会钳窗口）
+    ::ShowWindow(hwnd, SW_SHOWDEFAULT);
+    ::UpdateWindow(hwnd);
+
+    // 截图模式：ShowWindow 之后强制客户区尺寸（Win32 会把初始窗口钳进工作区）
     if (g_forceWidth > 0 && g_forceHeight > 0) {
         RECT rc = {0, 0, g_forceWidth, g_forceHeight};
         ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
         ::SetWindowPos(hwnd, HWND_TOP, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
                        SWP_NOZORDER | SWP_FRAMECHANGED);
+        ::UpdateWindow(hwnd);
     }
-
-    ::ShowWindow(hwnd, SW_SHOWDEFAULT);
-    ::UpdateWindow(hwnd);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -328,21 +389,36 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
+        const bool offscreen = !g_shotPath.empty() && g_forceWidth > 0 && g_forceHeight > 0;
+        if (offscreen) io.DisplaySize = ImVec2(static_cast<float>(g_forceWidth),
+                                               static_cast<float>(g_forceHeight));
         ImGui::NewFrame();
 
         fcg::ui::frame(app);
 
         ImGui::Render();
-        const float clear_color[4] = {0.08f, 0.09f, 0.11f, 1.00f};
-        g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
-        g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color);
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+        const bool offscreenNow = !g_shotPath.empty() && g_forceWidth > 0 && g_forceHeight > 0 &&
+                                  g_frameCounter + 1 >= g_shotFrames;
+        if (offscreenNow) {
+            RenderOffscreenAndSave(g_shotPath, g_forceWidth, g_forceHeight);
+            g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
+            D3D11_VIEWPORT vp{0.0f, 0.0f, static_cast<float>(g_ResizeWidth ? g_ResizeWidth : 1424),
+                              static_cast<float>(g_ResizeHeight ? g_ResizeHeight : 861), 0.0f, 1.0f};
+            g_pd3dDeviceContext->RSSetViewports(1, &vp);
+        } else {
+            const float clear_color[4] = {0.08f, 0.09f, 0.11f, 1.00f};
+            g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
+            g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color);
+            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        }
 
         HRESULT hr = g_pSwapChain->Present(1, 0);
         g_SwapChainOccluded = (hr == DXGI_STATUS_OCCLUDED);
 
         if (!g_shotPath.empty() && ++g_frameCounter >= g_shotFrames) {
-            SaveBackBufferPng(g_shotPath);
+            if (!offscreen) SaveBackBufferPng(g_shotPath);
+            std::printf("[SHOT] %s\n", g_shotPath.c_str());
             done = true;
         }
     }

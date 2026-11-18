@@ -32,7 +32,8 @@ void DrawResultOverlay(App& app) {
     // 是否同帧刚打开（截图模式下保证动画/布局稳定，这里无需处理）
     const bool compact = UiIsCompact();
     float cw = compact ? Min(820.0f, ws.x - 36.0f) : Min(820.0f, ws.x - 120.0f);
-    float ch = compact ? Min(660.0f, ws.y - 44.0f) : Min(660.0f, ws.y - 80.0f);
+    // 非紧凑模式给足高度，尽量一屏展示全部约束（6 条约需 780px）
+    float ch = compact ? Min(660.0f, ws.y - 44.0f) : Min(800.0f, ws.y - 56.0f);
     ImVec2 c0(wp.x + (ws.x - cw) * 0.5f, wp.y + (ws.y - ch) * 0.5f);
     ImVec2 c1(c0.x + cw, c0.y + ch);
     DrawCard(dl, c0, c1, 20.0f, ToU32(col::Panel), ToU32(col::Border));
@@ -168,7 +169,7 @@ void DrawResultOverlay(App& app) {
     float btnH = compact ? 44.0f : 54.0f;
     float buttonsY = c1.y - btnH - (compact ? 16.0f : 26.0f);
     if (!app.reports.empty() && compact) {
-        // 紧凑模式：不逐条列出，只显示统计与首要失败原因
+        // 紧凑模式：逐条紧凑列出（放不下才截断），避免大片空白
         int passed = 0;
         for (const auto& r : app.reports)
             if (r.ok) ++passed;
@@ -180,20 +181,23 @@ void DrawResultOverlay(App& app) {
         dl->AddText(gFontBody, 13.0f, ImVec2(c1.x - pad - pw, y + 2.0f),
                     ToU32(passed == static_cast<int>(app.reports.size()) ? col::Green : col::Red),
                     pass);
-        y += 26.0f;
+        y += 24.0f;
+        const float limitY = buttonsY - 6.0f;
         for (const auto& r : app.reports) {
-            if (r.ok) continue;
-            std::string label = r.label.empty() ? std::string("约束未通过") : r.label;
+            if (y > limitY - 18.0f) break;
+            std::string label = r.label.empty() ? std::string("约束") : r.label;
+            // 注意：字体不含 ✓/✗ 字形，用颜色 + "通过/未通过" 表达
+            std::string head = label;
             dl->AddText(gFontBody, 13.0f, ImVec2(c0.x + pad, y),
-                        ToU32(Alpha(col::Red, 0.95f)),
-                        Ellipsize("✗ " + label, innerW).c_str());
-            y += 20.0f;
-            if (!r.detail.empty() && r.detail != "未实现") {
+                        ToU32(r.ok ? Alpha(col::Green, 0.95f) : Alpha(col::Red, 0.95f)),
+                        Ellipsize(r.ok ? head : (head + "（未通过）"), innerW).c_str());
+            y += 19.0f;
+            if (!r.ok && !r.detail.empty() && r.detail != "未实现" && y <= limitY - 18.0f) {
                 dl->AddText(gFontBody, 12.0f, ImVec2(c0.x + pad + 12.0f, y),
-                            ToU32(col::TextDim), Ellipsize("原因：" + r.detail, innerW - 12.0f).c_str());
-                y += 20.0f;
+                            ToU32(col::TextDim),
+                            Ellipsize("原因：" + r.detail, innerW - 12.0f).c_str());
+                y += 18.0f;
             }
-            break;
         }
     }
     if (!app.reports.empty() && !compact) {
@@ -214,8 +218,12 @@ void DrawResultOverlay(App& app) {
             ImGui::SetCursorScreenPos(ImVec2(c0.x + pad, y));
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2, 2));
             ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 8.0f);
-            ImGui::BeginChild("##result_constraints", ImVec2(innerW, listH), false,
-                              ImGuiWindowFlags_NoBackground);
+            // 内容超高时强制显示滚动条，避免玩家看不出下面还有条目
+            float needH = 4.0f;
+            for (const auto& r : app.reports) needH += (r.ok ? 34.0f : 54.0f) + 6.0f;
+            ImGuiWindowFlags childFlags = ImGuiWindowFlags_NoBackground;
+            if (needH > listH) childFlags |= ImGuiWindowFlags_AlwaysVerticalScrollbar;
+            ImGui::BeginChild("##result_constraints", ImVec2(innerW, listH), false, childFlags);
             ImDrawList* cdl = ImGui::GetWindowDrawList();  // 子窗口裁剪用
             {
                 float rowW = ImGui::GetContentRegionAvail().x - 4.0f;
