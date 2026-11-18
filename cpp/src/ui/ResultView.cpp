@@ -1,0 +1,261 @@
+// ResultView.cpp — 提交结果覆盖层：总分 / 评级 / 四维评分 / 约束检查 / 操作按钮
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <string>
+
+#include "App.h"
+#include "LevelUi.h"
+#include "Theme.h"
+#include "imgui.h"
+
+namespace fcg {
+namespace ui {
+
+namespace {
+
+bool AllStubDetails(const std::vector<ConstraintReport>& reports) {
+    if (reports.empty()) return false;
+    for (const auto& r : reports)
+        if (r.detail != "未实现" && r.detail != "未实现。") return false;
+    return true;
+}
+
+}  // namespace
+
+void DrawResultOverlay(App& app) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 wp = ImGui::GetWindowPos();
+    ImVec2 ws = ImGui::GetWindowSize();
+    dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + ws.y), ToU32(ImVec4(0, 0, 0, 0.70f)));
+
+    // 是否同帧刚打开（截图模式下保证动画/布局稳定，这里无需处理）
+    float cw = Min(820.0f, ws.x - 120.0f);
+    float ch = Min(660.0f, ws.y - 80.0f);
+    ImVec2 c0(wp.x + (ws.x - cw) * 0.5f, wp.y + (ws.y - ch) * 0.5f);
+    ImVec2 c1(c0.x + cw, c0.y + ch);
+    DrawCard(dl, c0, c1, 20.0f, ToU32(col::Panel), ToU32(col::Border));
+
+    char grade = app.result.grade ? app.result.grade : (app.correct ? 'B' : 'D');
+    if (app.correct && (grade == 'D' || grade == 0)) grade = 'B';
+    const ImVec4& gc = GradeColor(grade);
+    const ImVec4& scoreCol = app.correct ? gc : col::TextDim;
+
+    float pad = 34.0f;
+    float innerW = cw - pad * 2.0f;
+    float y = c0.y + 30.0f;
+
+    // ---------- 头部：评级圆 + 总分 ----------
+    ImVec2 circleCenter(c0.x + pad + 48.0f, y + 48.0f);
+    dl->AddCircleFilled(circleCenter, 48.0f, GradeBg(grade), 48);
+    dl->AddCircle(circleCenter, 48.0f, ToU32(ImVec4(gc.x, gc.y, gc.z, 0.75f)), 48, 2.2f);
+    {
+        const char* gname = GradeName(grade);
+        ImVec2 ts = gFontScore->CalcTextSizeA(52.0f, FLT_MAX, 0.0f, gname);
+        dl->AddText(gFontScore, 52.0f,
+                    ImVec2(circleCenter.x - ts.x * 0.5f, circleCenter.y - ts.y * 0.5f),
+                    ToU32(gc), gname);
+    }
+    float tx = circleCenter.x + 68.0f;
+    dl->AddText(gFontBody, 13.0f, ImVec2(tx, y + 6.0f), ToU32(col::TextFaint),
+                app.endless ? "无尽模式 · 本次评级" : "本次评级");
+    dl->AddText(gFontHeading, 30.0f, ImVec2(tx, y + 22.0f), ToU32(gc), GradeLabel(grade));
+
+    // 总分（右上）
+    {
+        char total[32];
+        std::snprintf(total, sizeof(total), "%.0f", app.result.total);
+        ImVec2 ts = gFontScore->CalcTextSizeA(64.0f, FLT_MAX, 0.0f, total);
+        float scx = c1.x - pad - ts.x - 54.0f;
+        dl->AddText(gFontScore, 64.0f, ImVec2(scx, y + 4.0f), ToU32(scoreCol), total);
+        dl->AddText(gFontBody, 18.0f, ImVec2(scx + ts.x + 6.0f, y + 34.0f), ToU32(col::TextDim),
+                    "分");
+        dl->AddText(gFontBody, 12.0f, ImVec2(scx + ts.x + 6.0f, y + 56.0f),
+                    ToU32(col::TextFaint), "/ 100");
+    }
+
+    y += 104.0f;
+    // ---------- 状态横幅 ----------
+    {
+        ImVec2 b0(c0.x + pad, y);
+        ImVec2 b1(c1.x - pad, y + 42.0f);
+        ImU32 bg = ToU32(Alpha(app.correct ? col::Green : col::Red, 0.10f));
+        ImU32 fg = ToU32(app.correct ? col::Green : col::Red);
+        dl->AddRectFilled(b0, b1, bg, 10.0f);
+        dl->AddRect(b0, b1, ToU32(Alpha(app.correct ? col::Green : col::Red, 0.32f)), 10.0f, 0,
+                    1.0f);
+        if (app.correct) {
+            DrawIcon(dl, Icon::Check, ImVec2(b0.x + 24.0f, b0.y + 21.0f), 15.0f, fg, 2.2f);
+            dl->AddText(gFontBody, 16.0f, ImVec2(b0.x + 40.0f, b0.y + 11.0f), fg,
+                        app.endless ? "挑战成功！可以继续下一关" : "全部约束通过！");
+        } else {
+            DrawIcon(dl, Icon::Cross, ImVec2(b0.x + 24.0f, b0.y + 21.0f), 14.0f, fg, 2.2f);
+            std::string msg = "未通过全部约束，调整表达式后重试";
+            if (app.timeUp) msg = "时间耗尽，本次挑战失败";
+            dl->AddText(gFontBody, 16.0f, ImVec2(b0.x + 40.0f, b0.y + 11.0f), fg, msg.c_str());
+        }
+        // 右侧信息
+        char info[160];
+        if (app.endless) {
+            std::snprintf(info, sizeof(info), "第 %d 关 · 用时 %s", app.endlessIndex,
+                          FormatTime(app.submitElapsed).c_str());
+        } else {
+            std::snprintf(info, sizeof(info), "用时 %s · 节点 %d · 函数调用 %d",
+                          FormatTime(app.submitElapsed).c_str(),
+                          app.ast ? nodeCount(app.ast) : 0,
+                          app.ast ? funcCallCount(app.ast) : 0);
+        }
+        float tw = gFontBody->CalcTextSizeA(13.0f, FLT_MAX, 0.0f, info).x;
+        dl->AddText(gFontBody, 13.0f, ImVec2(b1.x - 16.0f - tw, b0.y + 14.0f),
+                    ToU32(col::TextDim), info);
+    }
+    y += 58.0f;
+
+    // ---------- 四维评分 ----------
+    dl->AddText(gFontHeading, 19.0f, ImVec2(c0.x + pad, y), ToU32(col::Text), "评分维度");
+    y += 32.0f;
+    {
+        struct Dim {
+            const char* label;
+            double value;
+            const ImVec4* color;
+        };
+        Dim dims[4] = {{"精确度", app.result.precision, &col::Cyan},
+                       {"优雅度", app.result.elegance, &col::Amber},
+                       {"鲁棒性", app.result.robustness, &col::Green},
+                       {"时间", app.result.speed, &col::Purple}};
+        for (int i = 0; i < 4; ++i) {
+            ImGui::SetCursorScreenPos(ImVec2(c0.x + pad, y));
+            ScoreBar(dims[i].label, static_cast<float>(dims[i].value / 100.0),
+                     *(dims[i].color), ImVec2(innerW, 24.0f));
+            y += 30.0f;
+        }
+    }
+    y += 2.0f;
+
+    // 反馈提示
+    if (!app.result.feedback.empty()) {
+        for (size_t i = 0; i < app.result.feedback.size() && i < 2; ++i) {
+            std::string fb = "· " + app.result.feedback[i];
+            dl->AddText(gFontBody, 13.0f, ImVec2(c0.x + pad, y), ToU32(col::Amber),
+                        Ellipsize(fb, innerW).c_str());
+            y += 20.0f;
+        }
+        y += 4.0f;
+    }
+    if (AllStubDetails(app.reports)) {
+        dl->AddText(gFontBody, 13.0f, ImVec2(c0.x + pad, y), ToU32(col::AmberHi),
+                    "提示：约束判定引擎尚未就绪，本次结果仅用于界面演示。");
+        y += 22.0f;
+    }
+
+    // ---------- 约束检查 ----------
+    float btnH = 54.0f;
+    float buttonsY = c1.y - btnH - 26.0f;
+    if (!app.reports.empty()) {
+        dl->AddText(gFontHeading, 19.0f, ImVec2(c0.x + pad, y), ToU32(col::Text), "约束检查");
+        char pass[64];
+        int passed = 0;
+        for (const auto& r : app.reports)
+            if (r.ok) ++passed;
+        std::snprintf(pass, sizeof(pass), "%d / %d 通过", passed,
+                      static_cast<int>(app.reports.size()));
+        float pw = gFontBody->CalcTextSizeA(13.0f, FLT_MAX, 0.0f, pass).x;
+        dl->AddText(gFontBody, 13.0f, ImVec2(c1.x - pad - pw, y + 6.0f),
+                    ToU32(passed == static_cast<int>(app.reports.size()) ? col::Green : col::Red),
+                    pass);
+        y += 30.0f;
+        float listH = buttonsY - y - 16.0f;
+        if (listH > 40.0f) {
+            ImGui::SetCursorScreenPos(ImVec2(c0.x + pad, y));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2, 2));
+            ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 8.0f);
+            ImGui::BeginChild("##result_constraints", ImVec2(innerW, listH), false,
+                              ImGuiWindowFlags_NoBackground);
+            {
+                float rowW = ImGui::GetContentRegionAvail().x - 4.0f;
+                for (size_t i = 0; i < app.reports.size(); ++i) {
+                    const ConstraintReport& r = app.reports[i];
+                    ImVec2 rp = ImGui::GetCursorScreenPos();
+                    float rowH = r.ok ? 34.0f : 54.0f;
+                    ImVec2 rp1(rp.x + rowW, rp.y + rowH);
+                    dl->AddRectFilled(rp, rp1,
+                                      ToU32(Alpha(r.ok ? col::Green : col::Red, 0.05f)), 8.0f);
+                    dl->AddRect(rp, rp1,
+                                ToU32(Alpha(r.ok ? col::Green : col::Red, 0.22f)), 8.0f, 0,
+                                1.0f);
+                    StatusDot(dl, ImVec2(rp.x + 20.0f, rp.y + rowH * 0.5f), 9.0f, r.ok);
+                    std::string label = r.label.empty()
+                                            ? ConstraintDesc(app.level.constraints[i])
+                                            : r.label;
+                    ImGui::SetCursorScreenPos(ImVec2(rp.x + 40.0f, rp.y + 7.0f));
+                    ImGui::PushTextWrapPos(rp.x + rowW - 10.0f);
+                    ImGui::PushStyleColor(ImGuiCol_Text, r.ok ? col::Text : col::TextDim);
+                    ImGui::TextUnformatted(Ellipsize(label, rowW - 54.0f).c_str());
+                    ImGui::PopStyleColor();
+                    ImGui::PopTextWrapPos();
+                    if (!r.ok && !r.detail.empty() && r.detail != "未实现") {
+                        dl->AddText(gFontBody, 12.0f, ImVec2(rp.x + 40.0f, rp.y + 30.0f),
+                                    ToU32(col::Red), Ellipsize("原因：" + r.detail, rowW - 54.0f).c_str());
+                    }
+                    ImGui::SetCursorScreenPos(ImVec2(rp.x, rp1.y + 6.0f));
+                }
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleVar(2);
+        }
+    }
+
+    // ---------- 按钮 ----------
+    ImGui::SetCursorScreenPos(ImVec2(c0.x + pad, buttonsY));
+    // 返回
+    const char* backLabel = app.endless ? "返回菜单" : "返回列表";
+    if (FunButton("res_back", backLabel, ImVec2(140.0f, btnH), StyleGhost(), true,
+                  app.endless ? Icon::Home : Icon::List)) {
+        app.hasResult = false;
+        app.backFromGame();
+    }
+
+    // 重试（通关时作为次要操作）
+    if (app.correct) {
+        ImGui::SetCursorScreenPos(ImVec2(c1.x - pad - 340.0f, buttonsY));
+        if (FunButton("res_retry", "重试", ImVec2(130.0f, btnH), StyleSecondary(), true,
+                      Icon::Retry)) {
+            app.hasResult = false;
+            app.retryLevel();
+        }
+    }
+
+    // 主行动
+    ImGui::SetCursorScreenPos(ImVec2(c1.x - pad - 194.0f, buttonsY));
+    if (app.correct && (app.endless || app.hasNextLevel())) {
+        if (FunButton("res_next", "下一关", ImVec2(194.0f, btnH), StylePrimary(), true,
+                      Icon::Play)) {
+            app.hasResult = false;
+            app.nextLevel();
+        }
+    } else if (app.correct) {
+        if (FunButton("res_finish", "完成并返回", ImVec2(194.0f, btnH), StylePrimary(), true,
+                      Icon::Check)) {
+            app.hasResult = false;
+            app.goLevelSelect();
+        }
+    } else {
+        if (FunButton("res_retry_primary", "重新挑战", ImVec2(194.0f, btnH), StylePrimary(), true,
+                      Icon::Retry)) {
+            app.hasResult = false;
+            app.retryLevel();
+        }
+    }
+
+    // 底部快捷键提示
+    {
+        const char* tip = app.correct ? "回车 下一关 · Esc 返回" : "回车 重新挑战 · Esc 返回";
+        ImVec2 ts = gFontBody->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, tip);
+        dl->AddText(gFontBody, 12.0f,
+                    ImVec2(c0.x + (cw - ts.x) * 0.5f, c1.y - 22.0f), ToU32(col::TextFaint), tip);
+    }
+}
+
+}  // namespace ui
+}  // namespace fcg

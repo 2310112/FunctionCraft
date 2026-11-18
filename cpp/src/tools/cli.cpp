@@ -1,5 +1,6 @@
 // cli.cpp — 命令行工具：关卡自检、约束验证、生成器测试
 // 用法见 PrintUsage()
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -27,6 +28,7 @@ void PrintUsage() {
   fcg_cli levels   <levels.json>              列出关卡
   fcg_cli verify   <levels.json>              用每关 reference 验证约束是否自洽
   fcg_cli check    <levels.json> <id> <expr>  用表达式检查某关
+  fcg_cli bench    <levels.json> <id> <expr> <n>  基准测试评分耗时
   fcg_cli endless  <seed> <count>             生成 count 关无尽关卡并自检
   fcg_cli eval     <expr> [x]                 求值
   fcg_cli parse    <expr>                     解析并打印 AST
@@ -128,6 +130,29 @@ int CmdCheck(const std::string& path, const std::string& id, const std::string& 
     return 1;
 }
 
+int CmdBench(const std::string& path, const std::string& id, const std::string& expr, int n) {
+    std::string err;
+    auto levels = loadLevels(path, &err);
+    if (!err.empty()) { std::printf("加载失败: %s\n", err.c_str()); return 1; }
+    for (auto& lv : levels) {
+        if (lv.id != id) continue;
+        ExprP e = MustParse(expr);
+        if (!e) return 1;
+        // 预热
+        evaluateSubmission(e, lv, 0.0);
+        auto t0 = std::chrono::high_resolution_clock::now();
+        ScoreBreakdown sc;
+        for (int i = 0; i < n; ++i) sc = evaluateSubmission(e, lv, 0.0);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count() / n;
+        std::printf("关卡 %s（%zu 条约束）提交评分：%.2f ms/次  总分 %.1f\n",
+                    lv.id.c_str(), lv.constraints.size(), ms, sc.total);
+        return 0;
+    }
+    std::printf("找不到关卡 %s\n", id.c_str());
+    return 1;
+}
+
 int CmdEndless(uint64_t seed, int count) {
     std::string err;
     std::printf("生成 %d 关（seed=%llu）\n\n", count, (unsigned long long)seed);
@@ -222,6 +247,7 @@ int main(int argc, char** argv) {
         if (cmd == "levels" && argc >= 3) return CmdLevels(argv[2]);
         if (cmd == "verify" && argc >= 3) return CmdVerify(argv[2]);
         if (cmd == "check" && argc >= 5) return CmdCheck(argv[2], argv[3], argv[4]);
+        if (cmd == "bench" && argc >= 6) return CmdBench(argv[2], argv[3], argv[4], std::atoi(argv[5]));
         if (cmd == "endless" && argc >= 4)
             return CmdEndless(std::strtoull(argv[2], nullptr, 10), std::atoi(argv[3]));
         if (cmd == "eval" && argc >= 3) return CmdEval(argv[2], argc >= 4, argc >= 4 ? atof(argv[3]) : 0.0);

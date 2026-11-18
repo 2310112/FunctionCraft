@@ -108,26 +108,29 @@ bool isAtomicForPrint(Op op) {
         case Op::I:
             return true;
         default:
-            return opArity(op) == 1;  // 函数调用形式 sin(x) 自带括号
+            return opArity(op) == 1 && op != Op::Neg;  // 函数调用形式自带括号
     }
 }
 
-std::string renderNode(const Expr& e, int parentPrec, bool rightSide);
-std::string render(const ExprP& e, int parentPrec, bool rightSide) {
-    if (!e) return "?";
-    return renderNode(*e, parentPrec, rightSide);
+std::string renderPtr(const Expr* node, int minPrec);
+
+// 子节点在给定上下文中的最小优先级要求
+bool needsParen(const Expr* child, int minPrec) {
+    if (!child) return false;
+    // 负项：仅在"右操作数 / 幂底数"上下文加括号（-a·b、-a+b 无需括号）
+    if (child->op == Op::Neg) return minPrec >= kPrecMul + 1;
+    return precOf(child->op) < minPrec;
 }
 
-std::string renderChild(const ExprP& child, int parentPrec, bool needParen) {
-    std::string s = render(child, 0, false);
-    if (needParen) return "(" + s + ")";
+std::string renderChild(const Expr* child, int minPrec) {
+    if (!child) return "?";
+    std::string s = renderPtr(child, minPrec);
+    if (needsParen(child, minPrec)) return "(" + s + ")";
     return s;
 }
 
-std::string renderNode(const Expr& node, int parentPrec, bool rightSide) {
-    const Expr* e = &node;
-    (void)parentPrec;
-    (void)rightSide;
+std::string renderPtr(const Expr* e, int minPrec) {
+    if (!e) return "?";
     switch (e->op) {
         case Op::Num:
             return numToString(e->num);
@@ -140,52 +143,51 @@ std::string renderNode(const Expr& node, int parentPrec, bool rightSide) {
         case Op::I:
             return "i";
         case Op::Neg: {
-            std::string inner = render(e->a, kPrecUnary, false);
-            // -x 与 -(a+b)
-            bool need = !isAtomicForPrint(e->a->op) && precOf(e->a->op) <= kPrecAdd;
-            std::string r = "-" + (need ? "(" + inner + ")" : inner);
-            return r;
+            // 一元负号优先级高于 + - ，低于幂与函数
+            return "-" + renderChild(e->a.get(), kPrecUnary);
         }
         case Op::Add: {
-            std::string l = render(e->a, kPrecAdd, false);
-            std::string r = render(e->b, kPrecAdd, true);
-            return l + " + " + r;
+            std::string l = renderChild(e->a.get(), kPrecAdd);
+            // a + (-b) 打印成 a - b
+            if (e->b && e->b->op == Op::Neg)
+                return l + " - " + renderChild(e->b->a.get(), kPrecMul);
+            return l + " + " + renderChild(e->b.get(), kPrecAdd + 1);
         }
         case Op::Sub: {
-            std::string l = render(e->a, kPrecAdd, false);
-            std::string r = render(e->b, kPrecAdd, true);
-            return l + " - " + r;
+            std::string l = renderChild(e->a.get(), kPrecAdd);
+            // a - (-b) 打印成 a + b
+            if (e->b && e->b->op == Op::Neg)
+                return l + " + " + renderChild(e->b->a.get(), kPrecMul);
+            return l + " - " + renderChild(e->b.get(), kPrecAdd + 1);
         }
         case Op::Mul: {
-            // 2x / 2sin(x) 省略乘号
-            bool leftNum = e->a->op == Op::Num;
-            bool rightSimple = isAtomicForPrint(e->b->op) && e->b->op != Op::Num;
-            std::string l = render(e->a, kPrecMul, false);
-            std::string r = render(e->b, kPrecMul, true);
-            if (leftNum && rightSimple) return l + r;
+            std::string l = renderChild(e->a.get(), kPrecMul);
+            std::string r = renderChild(e->b.get(), kPrecMul + 1);
+            // 数字后面跟非数字原子时省略乘号：2x、2π、2sin(x)、2(x+1)
+            if (e->a && e->a->op == Op::Num && e->b && e->b->op != Op::Num) return l + r;
             return l + "·" + r;
         }
         case Op::Div: {
-            std::string l = render(e->a, kPrecMul, false);
-            std::string r = render(e->b, kPrecMul, true);
+            std::string l = renderChild(e->a.get(), kPrecMul);
+            std::string r = renderChild(e->b.get(), kPrecMul + 1);
             return l + "/" + r;
         }
         case Op::Pow: {
-            std::string l = render(e->a, kPrecPow + 1, false);
-            std::string r = render(e->b, kPrecPow, true);
+            std::string l = renderChild(e->a.get(), kPrecPow + 1);
+            std::string r = renderChild(e->b.get(), kPrecPow);
             return l + "^" + r;
         }
         default: {
             if (opArity(e->op) == 2) {
-                std::string l = render(e->a, 0, false);
-                std::string r = render(e->b, 0, false);
+                std::string l = renderChild(e->a.get(), 0);
+                std::string r = renderChild(e->b.get(), 0);
                 if (e->op == Op::Min) return "min(" + l + ", " + r + ")";
                 if (e->op == Op::Max) return "max(" + l + ", " + r + ")";
                 if (e->op == Op::Mod) return "mod(" + l + ", " + r + ")";
                 return std::string(opName(e->op)) + "(" + l + ", " + r + ")";
             }
             if (opArity(e->op) == 1) {
-                std::string inner = render(e->a, 0, false);
+                std::string inner = renderChild(e->a.get(), 0);
                 if (e->op == Op::Sqrt) return "√(" + inner + ")";
                 return std::string(opName(e->op)) + "(" + inner + ")";
             }
@@ -237,7 +239,7 @@ bool opIsElementary(Op op) {
 
 std::string Expr::toStr() const {
     // 最外层不额外加括号
-    return renderNode(*this, 0, false);
+    return renderPtr(this, 0);
 }
 
 // ---------------------------------------------------------------

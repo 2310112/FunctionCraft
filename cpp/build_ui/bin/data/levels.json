@@ -1,0 +1,345 @@
+[
+  {
+    "id": "1-1",
+    "title": "余弦的微笑",
+    "chapter": 1,
+    "hint": "cos(x) 在 x=0 处等于 1，而且左右完全对称。",
+    "intro": "欢迎来到函数工坊！先从一个简单的目标开始：写出一个偶函数，并且 f(0)=1。",
+    "constraints": [
+      { "type": "parity", "parity": "even" },
+      { "type": "boundary", "point": 0, "value": 1 }
+    ],
+    "reference": "cos(x)",
+    "parScore": 90
+  },
+  {
+    "id": "1-2",
+    "title": "一路向上",
+    "chapter": 1,
+    "hint": "在 [0, π] 上 -cos(x) 的象从 -1 一路爬到 1。",
+    "constraints": [
+      { "type": "monotonic", "interval": [0, "pi"], "direction": "increasing" }
+    ],
+    "reference": "-cos(x)",
+    "parScore": 92
+  },
+  {
+    "id": "1-3",
+    "title": "抬高一格",
+    "chapter": 1,
+    "hint": "在偶函数上整体加一个常数，它仍然是偶函数。",
+    "constraints": [
+      { "type": "parity", "parity": "even" },
+      { "type": "boundary", "point": 0, "value": 2 }
+    ],
+    "reference": "cos(x) + 1",
+    "parScore": 90
+  },
+  {
+    "id": "1-4",
+    "title": "奇妙的对称",
+    "chapter": 1,
+    "hint": "sin(x) 是奇函数，而且 sin(π/2)=1。",
+    "constraints": [
+      { "type": "parity", "parity": "odd" },
+      { "type": "boundary", "point": "pi/2", "value": 1 }
+    ],
+    "reference": "sin(x)",
+    "parScore": 90
+  },
+  {
+    "id": "1-5",
+    "title": "永远为正",
+    "chapter": 1,
+    "hint": "指数函数配上 -x² 会让它左右对称、处处为正。",
+    "constraints": [
+      { "type": "positive", "interval": [-1, 1] },
+      { "type": "boundary", "point": 0, "value": 1 }
+    ],
+    "reference": "exp(-x*x)",
+    "parScore": 88
+  },
+  {
+    "id": "1-6",
+    "title": "周而复始",
+    "chapter": 1,
+    "hint": "cos(x) 每隔 2π 重复一次，并且 cos(0)=1。",
+    "constraints": [
+      { "type": "periodic", "period": "2*pi" },
+      { "type": "boundary", "point": 0, "value": 1 }
+    ],
+    "reference": "cos(x)",
+    "parScore": 88
+  },
+
+  {
+    "id": "2-1",
+    "title": "笔直向上",
+    "chapter": 2,
+    "hint": "最简单的单调递增函数就是一条直线，让 f(2π)=2π 即可。",
+    "constraints": [
+      { "type": "domain", "interval": [0, "2*pi"] },
+      { "type": "monotonic", "interval": [0, "2*pi"], "direction": "increasing", "strict": true },
+      { "type": "boundary", "point": 0, "value": 0 },
+      { "type": "boundary", "point": "2*pi", "value": "2*pi" }
+    ],
+    "reference": "x",
+    "parScore": 88
+  },
+  {
+    "id": "2-2",
+    "title": "从容下降",
+    "chapter": 2,
+    "hint": "从 2 开始，在 2π 的距离内线性地降到 0。",
+    "constraints": [
+      { "type": "domain", "interval": [0, "2*pi"] },
+      { "type": "monotonic", "interval": [0, "2*pi"], "direction": "decreasing", "strict": true },
+      { "type": "boundary", "point": 0, "value": 2 },
+      { "type": "boundary", "point": "2*pi", "value": 0 }
+    ],
+    "reference": "2 - x/pi",
+    "parScore": 88
+  },
+  {
+    "id": "2-3",
+    "title": "波浪的身份",
+    "chapter": 2,
+    "hint": "同时满足奇函数、周期 2π、f(π/2)=1 的，只有正弦波。",
+    "constraints": [
+      { "type": "periodic", "period": "2*pi" },
+      { "type": "parity", "parity": "odd" },
+      { "type": "boundary", "point": 0, "value": 0 },
+      { "type": "boundary", "point": "pi/2", "value": 1 }
+    ],
+    "reference": "sin(x)",
+    "parScore": 86
+  },
+  {
+    "id": "2-4",
+    "title": "左右对称的坡",
+    "chapter": 2,
+    "hint": "cos(x) 是偶函数，在 [0, π] 上从 1 降到 -1，而且处处解析。",
+    "constraints": [
+      { "type": "parity", "parity": "even" },
+      { "type": "monotonic", "interval": [0, "pi"], "direction": "decreasing" },
+      { "type": "boundary", "point": 0, "value": 1 },
+      { "type": "analytic", "interval": { "lo": -1, "hi": 1, "open": true } }
+    ],
+    "reference": "cos(x)",
+    "parScore": 86
+  },
+  {
+    "id": "2-5",
+    "title": "拱桥",
+    "chapter": 2,
+    "hint": "sin(x) 在 [0, π] 上是一座完美的拱桥：两端为 0，中间为正，最高为 1。",
+    "constraints": [
+      { "type": "positive", "interval": [0, "pi"] },
+      { "type": "boundary", "point": 0, "value": 0 },
+      { "type": "boundary", "point": "pi", "value": 0 },
+      { "type": "range", "interval": [0, "pi"], "bounds": [0, 1] }
+    ],
+    "reference": "sin(x)",
+    "parScore": 84
+  },
+  {
+    "id": "2-6",
+    "title": "唯一的零点",
+    "chapter": 2,
+    "hint": "奇次幂函数在原点穿过 x 轴一次；x³ 在区间内只有一个零点。",
+    "constraints": [
+      { "type": "domain", "interval": [-2, 2] },
+      { "type": "analytic", "interval": { "lo": -2, "hi": 2, "open": true } },
+      { "type": "zero_count", "interval": [-2, 2], "count": 1 },
+      { "type": "boundary", "point": 0, "value": 0 }
+    ],
+    "reference": "x^3",
+    "parScore": 84
+  },
+
+  {
+    "id": "3-1",
+    "title": "抛物线的顶点",
+    "chapter": 3,
+    "hint": "开口向下、顶点在 (0,1) 的抛物线：1 - x²。",
+    "constraints": [
+      { "type": "analytic", "interval": { "lo": -1, "hi": 1, "open": true } },
+      { "type": "boundary", "point": 0, "value": 1 },
+      { "type": "parity", "parity": "even" },
+      { "type": "extremum", "point": 0, "extremum": "max" }
+    ],
+    "reference": "1 - x*x",
+    "parScore": 86
+  },
+  {
+    "id": "3-2",
+    "title": "贴住 [0,1]",
+    "chapter": 3,
+    "hint": "把 cos(x) 压缩到 [0,1]：先加 1 再除以 2。",
+    "constraints": [
+      { "type": "range", "interval": ["-pi", "pi"], "bounds": [0, 1] },
+      { "type": "periodic", "period": "2*pi" },
+      { "type": "parity", "parity": "even" },
+      { "type": "boundary", "point": 0, "value": 1 }
+    ],
+    "reference": "(1 + cos(x))/2",
+    "parScore": 84
+  },
+  {
+    "id": "3-3",
+    "title": "归于平静",
+    "chapter": 3,
+    "hint": "分式 x/(1+x²) 是奇函数，在 [-1,1] 上单调递增，两端都趋于 0。",
+    "constraints": [
+      { "type": "asymptote", "value": 0, "side": "both" },
+      { "type": "parity", "parity": "odd" },
+      { "type": "boundary", "point": 0, "value": 0 },
+      { "type": "monotonic", "interval": [-1, 1], "direction": "increasing" },
+      { "type": "analytic", "interval": { "lo": -1, "hi": 1, "open": true } }
+    ],
+    "reference": "x/(1 + x*x)",
+    "parScore": 82
+  },
+  {
+    "id": "3-4",
+    "title": "钟形曲线",
+    "chapter": 3,
+    "hint": "exp(-x²) 是偶函数、峰值 f(0)=1，而且衰减很快，值域始终在 [0,1] 内。",
+    "constraints": [
+      { "type": "analytic", "interval": { "lo": -2, "hi": 2, "open": true } },
+      { "type": "boundary", "point": 0, "value": 1 },
+      { "type": "parity", "parity": "even" },
+      { "type": "range", "interval": [-2, 2], "bounds": [0, 1] },
+      { "type": "symmetry_axis", "axis": 0 }
+    ],
+    "reference": "exp(-x*x)",
+    "parScore": 82
+  },
+  {
+    "id": "3-5",
+    "title": "移位的山峰",
+    "chapter": 3,
+    "hint": "把高斯钟形沿 x 轴右移一格：exp(-(x-1)²)。",
+    "constraints": [
+      { "type": "domain", "interval": [0, 2] },
+      { "type": "analytic", "interval": { "lo": 0, "hi": 2, "open": true } },
+      { "type": "extremum", "point": 1, "extremum": "max" },
+      { "type": "boundary", "point": 1, "value": 1 },
+      { "type": "range", "interval": [0, 2], "bounds": [0, 1] }
+    ],
+    "reference": "exp(-(x-1)*(x-1))",
+    "parScore": 80
+  },
+  {
+    "id": "3-6",
+    "title": "两个零点",
+    "chapter": 3,
+    "hint": "开口向上的抛物线在 [-2,2] 内穿过 x 轴两次：x²-1。",
+    "constraints": [
+      { "type": "analytic", "interval": { "lo": -2, "hi": 2, "open": true } },
+      { "type": "parity", "parity": "even" },
+      { "type": "boundary", "point": 0, "value": -1 },
+      { "type": "zero_count", "interval": [-2, 2], "count": 2 },
+      { "type": "boundary", "point": 1, "value": 0 }
+    ],
+    "reference": "x*x - 1",
+    "parScore": 80
+  },
+
+  {
+    "id": "4-1",
+    "title": "消失于远方",
+    "chapter": 4,
+    "hint": "exp(-x²) 解析、峰值在 (0,1)、两侧都趋于 0，而且只用一个函数调用。",
+    "constraints": [
+      { "type": "analytic", "interval": { "lo": -5, "hi": 5, "open": true } },
+      { "type": "asymptote", "value": 0, "side": "both" },
+      { "type": "boundary", "point": 0, "value": 1 },
+      { "type": "range", "interval": [-5, 5], "bounds": [0, 1] },
+      { "type": "complexity_limit", "max_func_calls": 4 }
+    ],
+    "reference": "exp(-x*x)",
+    "parScore": 84
+  },
+  {
+    "id": "4-2",
+    "title": "有界的钟",
+    "chapter": 4,
+    "hint": "1/(1+x²) 也是偶函数，峰值 f(0)=1，取值全在 [0,1] 之间。",
+    "constraints": [
+      { "type": "analytic", "interval": { "lo": -3, "hi": 3, "open": true } },
+      { "type": "extremum", "point": 0, "extremum": "max" },
+      { "type": "boundary", "point": 0, "value": 1 },
+      { "type": "range", "interval": [-3, 3], "bounds": [0, 1] },
+      { "type": "complexity_limit", "max_func_calls": 4 },
+      { "type": "parity", "parity": "even" }
+    ],
+    "reference": "1/(1 + x*x)",
+    "parScore": 82
+  },
+  {
+    "id": "4-3",
+    "title": "孤独的零点",
+    "chapter": 4,
+    "hint": "x/(1+x²) 只在 x=0 取零，关于原点中心对称，两端趋于 0。",
+    "constraints": [
+      { "type": "analytic", "interval": { "lo": -5, "hi": 5, "open": true } },
+      { "type": "asymptote", "value": 0, "side": "both" },
+      { "type": "zero_count", "interval": [-5, 5], "count": 1 },
+      { "type": "parity", "parity": "odd" },
+      { "type": "point_symmetry", "point": 0, "value": 0 },
+      { "type": "complexity_limit", "max_func_calls": 5 }
+    ],
+    "reference": "x/(1 + x*x)",
+    "parScore": 82
+  },
+  {
+    "id": "4-4",
+    "title": "周期内的两次穿越",
+    "chapter": 4,
+    "hint": "cos(x) 在 [0,2π] 内恰好在 π/2 和 3π/2 两次穿过 x 轴。",
+    "constraints": [
+      { "type": "periodic", "period": "2*pi" },
+      { "type": "parity", "parity": "even" },
+      { "type": "zero_count", "interval": [0, "2*pi"], "count": 2 },
+      { "type": "boundary", "point": 0, "value": 1 },
+      { "type": "range", "interval": [0, "2*pi"], "bounds": [-1, 1] },
+      { "type": "complexity_limit", "max_func_calls": 4 }
+    ],
+    "reference": "cos(x)",
+    "parScore": 82
+  },
+  {
+    "id": "4-5",
+    "title": "受限的波动",
+    "chapter": 4,
+    "hint": "只用四则运算也能构造：x/(1+x²) 不调用任何函数。",
+    "constraints": [
+      { "type": "allowed_functions", "allowed": ["sin", "cos", "+", "-", "*", "/", "^"] },
+      { "type": "analytic", "interval": { "lo": -4, "hi": 4, "open": true } },
+      { "type": "parity", "parity": "odd" },
+      { "type": "asymptote", "value": 0, "side": "both" },
+      { "type": "zero_count", "interval": [-4, 4], "count": 1 },
+      { "type": "complexity_limit", "max_func_calls": 5 }
+    ],
+    "reference": "x/(1 + x*x)",
+    "parScore": 80
+  },
+  {
+    "id": "4-6",
+    "title": "函数的毕业设计",
+    "chapter": 4,
+    "hint": "只允许 exp 和四则运算：exp(-x²) 满足全部要求，且不需要零点。",
+    "intro": "最后一关：把前面学到的所有技巧组合起来。",
+    "constraints": [
+      { "type": "allowed_functions", "allowed": ["exp", "+", "-", "*", "^"] },
+      { "type": "parity", "parity": "even" },
+      { "type": "boundary", "point": 0, "value": 1 },
+      { "type": "zero_count", "interval": [-2, 2], "count": 0 },
+      { "type": "asymptote", "value": 0, "side": "both" },
+      { "type": "complexity_limit", "max_func_calls": 4 }
+    ],
+    "reference": "exp(-x*x)",
+    "parScore": 80
+  }
+]
