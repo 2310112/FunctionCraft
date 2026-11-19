@@ -32,6 +32,12 @@ enum class Op : uint8_t {
     Floor, Ceil, Sign,  // 非解析
     Min, Max,           // 非解析（二元）
 
+    // ----- 复数域专用（均非全纯，用于打破解析性 / 取分量） -----
+    Re,    // Re(z)
+    Im,    // Im(z)
+    Conj,  // z 的共轭
+    Arg,   // 辐角 arg(z)
+
     Pi, E, I,  // 常量 π, e, i
 
     COUNT

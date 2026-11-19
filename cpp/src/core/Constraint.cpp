@@ -88,6 +88,116 @@ std::string fmtPoint(double x) {
 }
 
 // -----------------------------------------------------------------
+// 复数 / 复平面区域格式化（描述用）
+//
+// 约定：与 ComplexRegion::str() 解耦，保证「约束面板的中文描述」在底层
+// 复变分析模块尚未落地时也稳定可测。风格示例：
+//   0.5、1+2i、-i、2πi、πi/2
+//   |z| < 1、1 < |z| < 2、|z - 1| > 3、上半平面
+// -----------------------------------------------------------------
+bool cplxIsZero(Cplx v, double eps = 1e-12) {
+    return std::fabs(v.re) <= eps && std::fabs(v.im) <= eps;
+}
+
+// 虚部（±非零）→ "i"、"-i"、"2i"、"2πi"、"3πi/4"
+std::string fmtImagPart(double im) {
+    const double a = std::fabs(im);
+    std::string mag;
+    if (std::fabs(a - 1.0) <= 1e-12) {
+        mag = "i";
+    } else {
+        const std::string n = fmtNum(a);  // "2" / "π" / "2π" / "π/2" / "3π/4"
+        const size_t slash = n.find('/');
+        static const std::string kPiUtf8 = "\xCF\x80";  // UTF-8 的 π（U+03C0）
+        const bool piNumer = slash != std::string::npos && slash >= kPiUtf8.size() &&
+                             n.compare(slash - kPiUtf8.size(), kPiUtf8.size(), kPiUtf8) == 0;
+        if (piNumer) {
+            // 把 "π/2" 写成 "πi/2"，"3π/4" 写成 "3πi/4"
+            mag = n.substr(0, slash) + "i" + n.substr(slash);
+        } else {
+            mag = n + "i";
+        }
+    }
+    return im < 0.0 ? "-" + mag : mag;
+}
+
+std::string fmtComplex(Cplx v) {
+    const bool reZero = std::fabs(v.re) <= 1e-12;
+    const bool imZero = std::fabs(v.im) <= 1e-12;
+    if (reZero && imZero) return "0";
+    if (imZero) return fmtNum(v.re);
+    if (reZero) return fmtImagPart(v.im);
+    // 实部 + 虚部：1+2i、1-2i、π/2+i
+    return fmtNum(v.re) + (v.im > 0.0 ? "+" : "-") + fmtImagPart(std::fabs(v.im));
+}
+
+// |z| 或 |z - z0|
+std::string fmtDiskTerm(Cplx center) {
+    if (cplxIsZero(center)) return "|z|";
+    constexpr double kEps = 1e-12;
+    const bool reZero = std::fabs(center.re) <= kEps;
+    const bool imZero = std::fabs(center.im) <= kEps;
+    if (imZero) {  // 实中心：|z - 2| / |z + 2|
+        return center.re >= 0.0 ? "|z - " + fmtNum(center.re) + "|"
+                                : "|z + " + fmtNum(-center.re) + "|";
+    }
+    if (reZero) {  // 纯虚中心：|z - i| / |z + i|
+        return center.im >= 0.0 ? "|z - " + fmtImagPart(center.im) + "|"
+                                : "|z + " + fmtImagPart(-center.im) + "|";
+    }
+    return "|z - (" + fmtComplex(center) + ")|";
+}
+
+std::string fmtRegion(const ComplexRegion& reg) {
+    switch (reg.kind) {
+        case ComplexRegion::Kind::Disk:
+            return fmtDiskTerm(reg.center) + " < " + fmtNum(reg.radius);
+        case ComplexRegion::Kind::Annulus:
+            return fmtNum(reg.radius) + " < " + fmtDiskTerm(reg.center) + " < " +
+                   fmtNum(reg.outerRadius);
+        case ComplexRegion::Kind::Rectangle:
+            return fmtNum(reg.x0) + " < Re z < " + fmtNum(reg.x1) + " 且 " + fmtNum(reg.y0) +
+                   " < Im z < " + fmtNum(reg.y1);
+        case ComplexRegion::Kind::HalfPlaneUpper:
+            if (std::fabs(reg.yLine) <= 1e-12) return "上半平面";
+            return "Im z > " + fmtNum(reg.yLine);
+        case ComplexRegion::Kind::HalfPlaneLower:
+            if (std::fabs(reg.yLine) <= 1e-12) return "下半平面";
+            return "Im z < " + fmtNum(reg.yLine);
+        case ComplexRegion::Kind::HalfPlaneRight:
+            if (std::fabs(reg.xLine) <= 1e-12) return "右半平面";
+            return "Re z > " + fmtNum(reg.xLine);
+        case ComplexRegion::Kind::ExteriorOfDisk:
+            return fmtDiskTerm(reg.center) + " > " + fmtNum(reg.radius);
+        case ComplexRegion::Kind::Plane:
+            return "整个复平面";
+    }
+    return "未知区域";
+}
+
+// 区域前缀：「在 |z| < 1 上」/「在上半平面上」——中文区域名前后不加空格更自然
+std::string fmtInRegion(const ComplexRegion& reg) {
+    const std::string s = fmtRegion(reg);
+    const bool cjk = !s.empty() && static_cast<unsigned char>(s[0]) >= 0xE0;
+    return cjk ? ("在" + s + "上") : ("在 " + s + " 上");
+}
+
+// 「在 |z| < 1 内」/「在上半平面内」
+std::string fmtInsideRegion(const ComplexRegion& reg) {
+    const std::string s = fmtRegion(reg);
+    const bool cjk = !s.empty() && static_cast<unsigned char>(s[0]) >= 0xE0;
+    return cjk ? ("在" + s + "内") : ("在 " + s + " 内");
+}
+
+// 相对误差 |got-want| / max(1, |want|)
+double cplxRelError(Cplx got, Cplx want) {
+    const double scale = std::max(1.0, want.abs());
+    const double err = (got - want).abs() / scale;
+    if (!std::isfinite(err)) return std::numeric_limits<double>::infinity();
+    return err;
+}
+
+// -----------------------------------------------------------------
 // 基础工具
 // -----------------------------------------------------------------
 bool evalFinite(const ExprP& f, const std::string& var, double x, double* out) {
@@ -499,6 +609,15 @@ const char* constraintKindName(ConstraintKind k) {
         case ConstraintKind::ZeroCount: return "zero_count";
         case ConstraintKind::ComplexityLimit: return "complexity_limit";
         case ConstraintKind::PeriodicSymmetry: return "point_symmetry";
+        // ---------- 复变 ----------
+        case ConstraintKind::HolomorphicOn: return "holomorphic";
+        case ConstraintKind::NoSingularityIn: return "no_singularity";
+        case ConstraintKind::PoleOrderAt: return "pole_order";
+        case ConstraintKind::ResidueAt: return "residue";
+        case ConstraintKind::ContourIntegralValue: return "contour_integral";
+        case ConstraintKind::ZeroCountInRegion: return "zero_count_region";
+        case ConstraintKind::ModulusRangeOn: return "modulus_range";
+        case ConstraintKind::ComplexBoundaryValue: return "complex_value";
     }
     return "unknown";
 }
@@ -520,6 +639,15 @@ const char* constraintKindDisplay(ConstraintKind k) {
         case ConstraintKind::ZeroCount: return "零点个数";
         case ConstraintKind::ComplexityLimit: return "复杂度上限";
         case ConstraintKind::PeriodicSymmetry: return "中心对称";
+        // ---------- 复变 ----------
+        case ConstraintKind::HolomorphicOn: return "全纯性";
+        case ConstraintKind::NoSingularityIn: return "无奇点";
+        case ConstraintKind::PoleOrderAt: return "极点阶数";
+        case ConstraintKind::ResidueAt: return "留数";
+        case ConstraintKind::ContourIntegralValue: return "围道积分";
+        case ConstraintKind::ZeroCountInRegion: return "区域内零点数";
+        case ConstraintKind::ModulusRangeOn: return "模的范围";
+        case ConstraintKind::ComplexBoundaryValue: return "复数点取值";
     }
     return "未知约束";
 }
@@ -541,6 +669,16 @@ bool constraintKindSupported(ConstraintKind k) {
         case ConstraintKind::ZeroCount:
         case ConstraintKind::ComplexityLimit:
         case ConstraintKind::PeriodicSymmetry:
+            return true;
+        // ---------- 复变（判定依赖 Complex.h 的全纯/留数/积分/零点分析） ----------
+        case ConstraintKind::HolomorphicOn:
+        case ConstraintKind::NoSingularityIn:
+        case ConstraintKind::PoleOrderAt:
+        case ConstraintKind::ResidueAt:
+        case ConstraintKind::ContourIntegralValue:
+        case ConstraintKind::ZeroCountInRegion:
+        case ConstraintKind::ModulusRangeOn:
+        case ConstraintKind::ComplexBoundaryValue:
             return true;
     }
     return false;
@@ -586,6 +724,25 @@ std::string Constraint::describe() const {
             return "函数调用数不超过 " + std::to_string(maxFuncCalls);
         case ConstraintKind::PeriodicSymmetry:
             return "关于点 (" + fmtNum(point) + ", " + fmtNum(value) + ") 中心对称";
+        // ---------- 复变 ----------
+        case ConstraintKind::HolomorphicOn:
+            return fmtInRegion(region) + "解析";
+        case ConstraintKind::NoSingularityIn:
+            return fmtInsideRegion(region) + "无奇点";
+        case ConstraintKind::PoleOrderAt:
+            return "在 z = " + fmtComplex(cpoint) + " 处有 " + std::to_string(order) + " 阶极点";
+        case ConstraintKind::ResidueAt:
+            return "在 z = " + fmtComplex(cpoint) + " 处的留数为 " + fmtComplex(cvalue);
+        case ConstraintKind::ContourIntegralValue:
+            return "沿 " + fmtDiskTerm(cpoint) + " = " + fmtNum(radius) + " 逆时针积分等于 " +
+                   fmtComplex(cvalue);
+        case ConstraintKind::ZeroCountInRegion:
+            return fmtInsideRegion(region) + "恰有 " + std::to_string(count) + " 个零点";
+        case ConstraintKind::ModulusRangeOn:
+            return "在 " + fmtRegion(region) + " 上 |f(z)| ∈ [" + fmtNum(lo) + ", " + fmtNum(hi) +
+                   "]";
+        case ConstraintKind::ComplexBoundaryValue:
+            return "f(" + fmtComplex(cpoint) + ") = " + fmtComplex(cvalue);
     }
     return "未知约束";
 }
@@ -712,6 +869,32 @@ ConstraintReport checkConstraint(const Constraint& c, const ExprP& f) {
 
         // ---------- 边界值 ----------
         case ConstraintKind::BoundaryValue: {
+            // 复数关卡（变量为 z）：取复数点/复数值。Level.cpp 优先把 JSON 的数组形式
+            // point/value 填到 cpoint/cvalue；若只写了实数 point/value 则做兼容回退。
+            if (c.var != "x") {
+                Cplx z0 = c.cpoint;
+                Cplx w0 = c.cvalue;
+                if (cplxIsZero(z0) && cplxIsZero(w0) && (c.point != 0.0 || c.value != 0.0)) {
+                    z0 = Cplx(c.point, 0.0);
+                    w0 = Cplx(c.value, 0.0);
+                }
+                VarMap vars;
+                vars[c.var] = z0;
+                const EvalResult ev = evaluate(f, vars);
+                if (!ev.ok || !ev.value.isFinite()) {
+                    r.ok = false;
+                    r.detail = "在 z = " + fmtComplex(z0) + " 处无定义，无法验证该点取值" +
+                               (ev.error.empty() ? std::string() : "（" + ev.error + "）");
+                    return r;
+                }
+                const double relErr = cplxRelError(ev.value, w0);
+                r.ok = relErr <= 1e-6;
+                if (!r.ok) {
+                    r.detail = "f(" + fmtComplex(z0) + ") = " + fmtComplex(ev.value) + "，要求等于 " +
+                               fmtComplex(w0) + "（相对误差 " + fmtNum(relErr) + "）";
+                }
+                return r;
+            }
             double v = 0.0;
             if (!evalFinite(f, c.var, c.point, &v)) {
                 r.ok = false;
@@ -1034,6 +1217,229 @@ ConstraintReport checkConstraint(const Constraint& c, const ExprP& f) {
             std::string detail;
             r.ok = checkSymmetryIdentity(f, c.var, c.point, c.value, true, &detail);
             r.detail = detail;
+            return r;
+        }
+
+        // =========================================================
+        // 复变约束（依赖 Complex.h 的数值分析；底层未实现时会给出明确原因）
+        // =========================================================
+
+        // ---------- 在区域上全纯（解析） ----------
+        case ConstraintKind::HolomorphicOn: {
+            if (c.region.isEmpty()) {
+                r.ok = false;
+                r.detail = "约束本身无效：解析区域为空";
+                return r;
+            }
+            const ComplexCheck cc = isHolomorphicOn(f, c.var, c.region);
+            r.ok = cc.ok;
+            if (!cc.ok) {
+                r.detail = cc.reason.empty() ? (fmtInRegion(c.region) + "不是解析函数")
+                                             : cc.reason;
+            }
+            return r;
+        }
+
+        // ---------- 区域内无奇点 ----------
+        case ConstraintKind::NoSingularityIn: {
+            if (c.region.isEmpty()) {
+                r.ok = false;
+                r.detail = "约束本身无效：检查区域为空";
+                return r;
+            }
+            const std::vector<SingularPoint> sings = singularitiesIn(f, c.var, c.region);
+            if (sings.empty()) {
+                r.ok = true;
+                return r;
+            }
+            std::vector<std::string> where;
+            for (size_t i = 0; i < sings.size() && i < 4; ++i) {
+                std::string desc = "z = " + fmtComplex(sings[i].z);
+                if (sings[i].essential) {
+                    desc += "（本质奇点）";
+                } else if (sings[i].poleOrder > 0) {
+                    desc += "（" + std::to_string(sings[i].poleOrder) + " 阶极点）";
+                } else {
+                    desc += "（可去奇点）";
+                }
+                where.push_back(desc);
+            }
+            r.ok = false;
+            r.detail = fmtInsideRegion(c.region) + "检测到 " +
+                       std::to_string(sings.size()) + " 个奇点：" + joinStrings(where, "、");
+            return r;
+        }
+
+        // ---------- z0 处极点阶数 ----------
+        case ConstraintKind::PoleOrderAt: {
+            if (c.order <= 0) {
+                r.ok = false;
+                r.detail = "约束本身无效：极点阶数必须为正整数";
+                return r;
+            }
+            // 在 z0 的小邻域内数值搜索孤立奇点，取离 z0 最近的一个
+            static constexpr double kSearchRadius = 0.25;
+            const std::vector<SingularPoint> sings =
+                singularitiesIn(f, c.var, ComplexRegion::disk(c.cpoint, kSearchRadius));
+            if (sings.empty()) {
+                r.ok = false;
+                r.detail = "在 z = " + fmtComplex(c.cpoint) +
+                           " 附近没有检测到极点（该点可能是解析点，而非极点）";
+                return r;
+            }
+            const SingularPoint* best = &sings.front();
+            for (const SingularPoint& s : sings) {
+                if ((s.z - c.cpoint).abs() < (best->z - c.cpoint).abs()) best = &s;
+            }
+            if ((best->z - c.cpoint).abs() > 0.05) {
+                r.ok = false;
+                r.detail = "在 z = " + fmtComplex(c.cpoint) + " 处没有极点（最近的奇点在 z = " +
+                           fmtComplex(best->z) + "）";
+                return r;
+            }
+            if (best->essential) {
+                r.ok = false;
+                r.detail = "z = " + fmtComplex(c.cpoint) + " 处是本质奇点，不是 " +
+                           std::to_string(c.order) + " 阶极点";
+                return r;
+            }
+            if (best->poleOrder <= 0) {
+                r.ok = false;
+                r.detail = "z = " + fmtComplex(c.cpoint) + " 处不是极点（是解析点或可去奇点），要求 " +
+                           std::to_string(c.order) + " 阶极点";
+                return r;
+            }
+            if (best->poleOrder != c.order) {
+                r.ok = false;
+                r.detail = "z = " + fmtComplex(c.cpoint) + " 处实测为 " +
+                           std::to_string(best->poleOrder) + " 阶极点，要求 " +
+                           std::to_string(c.order) + " 阶";
+                return r;
+            }
+            r.ok = true;
+            return r;
+        }
+
+        // ---------- z0 处留数 ----------
+        case ConstraintKind::ResidueAt: {
+            const CplxResult rr = residueAt(f, c.var, c.cpoint);
+            if (!rr.ok || !rr.value.isFinite()) {
+                r.ok = false;
+                r.detail = "无法计算 z = " + fmtComplex(c.cpoint) + " 处的留数" +
+                           (rr.error.empty() ? std::string() : "（" + rr.error + "）");
+                return r;
+            }
+            const double relErr = cplxRelError(rr.value, c.cvalue);
+            r.ok = relErr <= 1e-6;
+            if (!r.ok) {
+                r.detail = "在 z = " + fmtComplex(c.cpoint) + " 处实测留数为 " +
+                           fmtComplex(rr.value) + "，要求 " + fmtComplex(c.cvalue) +
+                           "（相对误差 " + fmtNum(relErr) + "）";
+            }
+            return r;
+        }
+
+        // ---------- 圆周围道积分值 ----------
+        case ConstraintKind::ContourIntegralValue: {
+            if (!(c.radius > 0.0)) {
+                r.ok = false;
+                r.detail = "约束本身无效：围道半径必须为正数";
+                return r;
+            }
+            const CplxResult ir = contourIntegral(f, c.var, c.cpoint, c.radius);
+            if (!ir.ok || !ir.value.isFinite()) {
+                r.ok = false;
+                r.detail = "无法计算沿 " + fmtDiskTerm(c.cpoint) + " = " + fmtNum(c.radius) +
+                           " 的围道积分" + (ir.error.empty() ? std::string() : "（" + ir.error + "）");
+                return r;
+            }
+            const double relErr = cplxRelError(ir.value, c.cvalue);
+            r.ok = relErr <= 1e-6;
+            if (!r.ok) {
+                r.detail = "沿 " + fmtDiskTerm(c.cpoint) + " = " + fmtNum(c.radius) +
+                           " 逆时针积分实测为 " + fmtComplex(ir.value) + "，要求 " +
+                           fmtComplex(c.cvalue) + "（相对误差 " + fmtNum(relErr) + "）";
+            }
+            return r;
+        }
+
+        // ---------- 区域内零点个数 ----------
+        case ConstraintKind::ZeroCountInRegion: {
+            if (c.region.isEmpty()) {
+                r.ok = false;
+                r.detail = "约束本身无效：零点统计区域为空";
+                return r;
+            }
+            if (c.count < 0) {
+                r.ok = false;
+                r.detail = "约束本身无效：零点个数不能为负";
+                return r;
+            }
+            const IntResult zr = zeroCountIn(f, c.var, c.region);
+            if (!zr.ok) {
+                r.ok = false;
+                r.detail = "无法统计 " + fmtRegion(c.region) + " 内的零点个数" +
+                           (zr.error.empty() ? std::string() : "（" + zr.error + "）");
+                return r;
+            }
+            if (zr.value != c.count) {
+                r.ok = false;
+                r.detail = fmtInsideRegion(c.region) + "实测有 " +
+                           std::to_string(zr.value) + " 个零点（计重数），要求恰好 " +
+                           std::to_string(c.count) + " 个";
+                return r;
+            }
+            r.ok = true;
+            return r;
+        }
+
+        // ---------- 区域内模的范围 ----------
+        case ConstraintKind::ModulusRangeOn: {
+            if (c.lo > c.hi) {
+                r.ok = false;
+                r.detail = "约束本身无效：下界大于上界";
+                return r;
+            }
+            const ModRangeResult mr = modulusRangeOn(f, c.var, c.region);
+            if (!mr.ok) {
+                r.ok = false;
+                r.detail = "无法判定 |f(z)| 在 " + fmtRegion(c.region) + " 上的取值范围" +
+                           (mr.error.empty() ? std::string() : "（" + mr.error + "）");
+                return r;
+            }
+            const double tol = 1e-6 * (1.0 + std::fabs(c.lo) + std::fabs(c.hi));
+            if (mr.lo < c.lo - tol) {
+                r.ok = false;
+                r.detail = "在 " + fmtRegion(c.region) + " 上 |f(z)| 的最小值为 " + fmtNum(mr.lo) +
+                           "，小于下界 " + fmtNum(c.lo);
+                return r;
+            }
+            if (mr.hi > c.hi + tol) {
+                r.ok = false;
+                r.detail = "在 " + fmtRegion(c.region) + " 上 |f(z)| 的最大值为 " + fmtNum(mr.hi) +
+                           "，超过上界 " + fmtNum(c.hi);
+                return r;
+            }
+            r.ok = true;
+            return r;
+        }
+
+        // ---------- 复数点取值 ----------
+        case ConstraintKind::ComplexBoundaryValue: {
+            const CplxResult ev = evalComplex(f, c.var, c.cpoint);
+            if (!ev.ok || !ev.value.isFinite()) {
+                r.ok = false;
+                r.detail = "在 z = " + fmtComplex(c.cpoint) + " 处无定义，无法验证该点取值" +
+                           (ev.error.empty() ? std::string() : "（" + ev.error + "）");
+                return r;
+            }
+            const double relErr = cplxRelError(ev.value, c.cvalue);
+            r.ok = relErr <= 1e-6;
+            if (!r.ok) {
+                r.detail = "f(" + fmtComplex(c.cpoint) + ") = " + fmtComplex(ev.value) +
+                           "，要求等于 " + fmtComplex(c.cvalue) + "（相对误差 " +
+                           fmtNum(relErr) + "）";
+            }
             return r;
         }
     }

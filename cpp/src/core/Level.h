@@ -9,14 +9,22 @@
 
 namespace fcg {
 
+// 定义域：实数域（单变量 x）或复数域（变量 z 取复值）
+enum class DomainKind { Real, Complex };
+
 struct LevelDef {
     std::string id;
     std::string title;
     std::string hint;
     int chapter = 1;
 
+    DomainKind domain = DomainKind::Real;
     std::vector<std::string> vars{"x"};
     std::vector<Constraint> constraints;
+
+    // 主变量名（复数关卡为 "z"）
+    std::string primaryVar() const { return vars.empty() ? "x" : vars.front(); }
+    bool isComplex() const { return domain == DomainKind::Complex; }
 
     double timeLimit = 0.0;   // 秒；0 = 不限时
     double parScore = 85.0;   // 参考解分数

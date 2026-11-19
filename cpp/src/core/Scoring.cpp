@@ -162,6 +162,81 @@ struct ProbeAccumulator {
     }
 };
 
+// -----------------------------------------------------------------
+// 复变约束的鲁棒性弱探针
+//
+// 复变硬约束（解析性/留数/围道积分/零点数）的完整复核由 checkConstraint 完成，
+// 代价高；评分里的 robustness 只做低成本的一致性抽查：
+//   * HolomorphicOn / NoSingularityIn：在区域内部取若干点，要求 f 仍可求值且有限；
+//   * ModulusRangeOn：在区域内部取点，要求 |f| 仍落在 [lo, hi] 内；
+//   * 其它复变约束（极点/留数/围道/零点/点值）不参与，避免正确解被误罚。
+// 若一整关都没有可复核的复变约束 → 返回 100（不惩罚）。
+// -----------------------------------------------------------------
+bool evalComplexFinite(const ExprP& f, const std::string& var, Cplx z, Cplx* out) {
+    if (!f) return false;
+    VarMap vars;
+    vars[var] = z;
+    const EvalResult ev = evaluate(f, vars);
+    if (!ev.ok || !ev.value.isFinite()) return false;
+    if (out) *out = ev.value;
+    return true;
+}
+
+// 在复平面区域内部取若干代表点（不依赖 Complex.cpp 的采样实现）
+std::vector<Cplx> sampleRegionInterior(const ComplexRegion& reg) {
+    std::vector<Cplx> pts;
+    static const double kAngles[6] = {0.0, 1.0472, 2.0944, 3.1416, 4.1888, 5.2360};
+    auto addRing = [&](Cplx center, double r) {
+        if (!(r > 0.0)) return;
+        for (double a : kAngles) pts.push_back(center + Cplx(r * std::cos(a), r * std::sin(a)));
+    };
+    switch (reg.kind) {
+        case ComplexRegion::Kind::Disk:
+            addRing(reg.center, 0.5 * reg.radius);
+            break;
+        case ComplexRegion::Kind::Annulus: {
+            const double rm = 0.5 * (reg.radius + reg.outerRadius);
+            const double half = 0.25 * (reg.outerRadius - reg.radius);
+            if (rm > 0.0 && half > 0.0) {
+                for (double a : kAngles) {
+                    for (double rr : {rm - half, rm, rm + half})
+                        pts.push_back(reg.center + Cplx(rr * std::cos(a), rr * std::sin(a)));
+                }
+            }
+            break;
+        }
+        case ComplexRegion::Kind::Rectangle: {
+            for (double tx : {0.25, 0.5, 0.75}) {
+                for (double ty : {0.25, 0.5, 0.75}) {
+                    pts.push_back(Cplx(reg.x0 + tx * (reg.x1 - reg.x0),
+                                       reg.y0 + ty * (reg.y1 - reg.y0)));
+                }
+            }
+            break;
+        }
+        case ComplexRegion::Kind::HalfPlaneUpper:
+            for (double dx : {-1.0, 0.0, 1.0})
+                for (double dy : {0.5, 1.0}) pts.push_back(Cplx(dx, reg.yLine + dy));
+            break;
+        case ComplexRegion::Kind::HalfPlaneLower:
+            for (double dx : {-1.0, 0.0, 1.0})
+                for (double dy : {0.5, 1.0}) pts.push_back(Cplx(dx, reg.yLine - dy));
+            break;
+        case ComplexRegion::Kind::HalfPlaneRight:
+            for (double dy : {-1.0, 0.0, 1.0})
+                for (double dx : {0.5, 1.0}) pts.push_back(Cplx(reg.xLine + dx, dy));
+            break;
+        case ComplexRegion::Kind::ExteriorOfDisk:
+            addRing(reg.center, reg.radius + 0.75);
+            break;
+        case ComplexRegion::Kind::Plane:
+            for (Cplx z : {Cplx(0.5, 0.5), Cplx(-1.5, 0.5), Cplx(1.5, -1.0), Cplx(0.0, 2.0)})
+                pts.push_back(z);
+            break;
+    }
+    return pts;
+}
+
 double computeRobustness(const ExprP& f, const LevelDef& level, bool correct, int hardTotal,
                          int hardPass) {
     ProbeAccumulator acc;
@@ -236,9 +311,51 @@ double computeRobustness(const ExprP& f, const LevelDef& level, bool correct, in
             case ConstraintKind::Periodic:
             case ConstraintKind::AllowedFunctions:
             case ConstraintKind::ComplexityLimit:
+            // 复变约束在下方按复平面区域统一采样（不按实数区间探针）
+            case ConstraintKind::HolomorphicOn:
+            case ConstraintKind::NoSingularityIn:
+            case ConstraintKind::PoleOrderAt:
+            case ConstraintKind::ResidueAt:
+            case ConstraintKind::ContourIntegralValue:
+            case ConstraintKind::ZeroCountInRegion:
+            case ConstraintKind::ModulusRangeOn:
+            case ConstraintKind::ComplexBoundaryValue:
                 break;
         }
     }
+
+    // ---------------- 复变关卡：区域内弱一致性抽查 ----------------
+    if (level.isComplex()) {
+        for (const Constraint& c : level.constraints) {
+            if (!c.required) continue;
+            switch (c.kind) {
+                case ConstraintKind::HolomorphicOn:
+                case ConstraintKind::NoSingularityIn: {
+                    for (Cplx z : sampleRegionInterior(c.region)) {
+                        acc.add();
+                        if (evalComplexFinite(f, c.var, z, nullptr)) ++acc.pass;
+                    }
+                    break;
+                }
+                case ConstraintKind::ModulusRangeOn: {
+                    const double tol = 1e-6 * (1.0 + std::fabs(c.lo) + std::fabs(c.hi));
+                    for (Cplx z : sampleRegionInterior(c.region)) {
+                        acc.add();
+                        Cplx v;
+                        if (!evalComplexFinite(f, c.var, z, &v)) continue;
+                        const double m = v.abs();
+                        if (m >= c.lo - tol && m <= c.hi + tol) ++acc.pass;
+                    }
+                    break;
+                }
+                default:
+                    // 极点/留数/围道积分/零点数的复核成本高，硬约束判定已覆盖
+                    break;
+            }
+        }
+        if (acc.total == 0) return 100.0;  // 复变约束无法低成本复核：不惩罚
+    }
+
     const double probeScore = acc.score();
     if (probeScore >= 0.0) return probeScore;
     // 没有可用的点探针：退化为"硬约束通过比例"

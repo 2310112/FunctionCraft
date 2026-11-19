@@ -61,9 +61,20 @@ void DrawResultOverlay(App& app) {
                     ToU32(gc), gname);
     }
     float tx = circleCenter.x + gradeR + (compact ? S(16.0f) : S(20.0f));
-    dl->AddText(gFontBody, S(13.0f), ImVec2(tx, y + S(6.0f)), ToU32(col::TextFaint),
-                app.endless ? "无尽模式 · 本次评级" : "本次评级");
+    const char* modeLabel = app.endless ? "无尽模式 · 本次评级"
+                                        : (app.isComplexLevel() ? "复数域 · 本次评级" : "本次评级");
+    dl->AddText(gFontBody, S(13.0f), ImVec2(tx, y + S(6.0f)), ToU32(col::TextFaint), modeLabel);
     dl->AddText(gFontHeading, S(30.0f), ImVec2(tx, y + S(22.0f)), ToU32(gc), GradeLabel(grade));
+    if (app.isComplexLevel()) {
+        const char* vlab = "f(z)";
+        float vw = gFontBody->CalcTextSizeA(S(13.0f), FLT_MAX, 0.0f, vlab).x;
+        float lw = gFontBody->CalcTextSizeA(S(30.0f), FLT_MAX, 0.0f, GradeLabel(grade)).x;
+        ImVec2 b0(tx + lw + S(12.0f), y + S(28.0f));
+        ImVec2 b1(b0.x + vw + S(16.0f), b0.y + S(24.0f));
+        dl->AddRectFilled(b0, b1, ToU32(Alpha(col::Purple, 0.16f)), S(6.0f));
+        dl->AddText(gFontBody, S(13.0f), ImVec2(b0.x + S(8.0f), b0.y + S(4.0f)),
+                    ToU32(col::Purple), vlab);
+    }
 
     // 总分（右上）
     {

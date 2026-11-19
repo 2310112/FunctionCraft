@@ -59,6 +59,18 @@ void DrawTopBar(App& app, float w) {
     // 右侧状态徽章（小窗口只保留最重要的信息）
     if (UiIsCompact()) return;
     float rx = cxr;
+    if (app.isComplexLevel()) {
+        const char* tag = "复数域";
+        float tw = TextWidth(tag) + S(22.0f);
+        rx -= tw;
+        ImVec2 p0(rx, origin.y + S(20.0f));
+        ImVec2 p1(rx + tw, origin.y + S(46.0f));
+        dl->AddRectFilled(p0, p1, ToU32(Alpha(col::Purple, 0.16f)), S(7.0f));
+        dl->AddRect(p0, p1, ToU32(Alpha(col::Purple, 0.40f)), S(7.0f), 0, S(1.0f));
+        dl->AddText(gFontBody, S(14.0f), ImVec2(p0.x + S(11.0f), p0.y + S(5.0f)),
+                    ToU32(col::Purple), tag);
+        rx -= S(10.0f);
+    }
     if (app.timeLimit() > 0.0) {
         const char* tag = "限时";
         float tw = TextWidth(tag) + S(34.0f);
@@ -154,17 +166,21 @@ void DrawExprCard(App& app, const ImVec2& size) {
     dl->AddText(gFontBody, S(13.0f), ImVec2(p0.x + pad, p0.y + S(10.0f)), ToU32(col::TextFaint),
                 "函数表达式");
     {
-        const char* hint = "回车提交 · 可直接键入字母与数字";
+        const char* hint = app.isComplexLevel() ? "复变函数：变量 z · 回车提交"
+                                                : "回车提交 · 可直接键入字母与数字";
         float tw = gFontBody->CalcTextSizeA(S(12.0f), FLT_MAX, 0.0f, hint).x;
         dl->AddText(gFontBody, S(12.0f), ImVec2(p1.x - pad - tw, p0.y + S(11.0f)),
                     ToU32(col::TextFaint), hint);
     }
 
-    // f(x) =
+    // f(x) = / f(z) =
+    const std::string fnLabel = "f(" + app.level.primaryVar() + ") =";
     float baseY = p0.y + S(46.0f);
     float exprFontSize = gFontMono ? gFontMono->FontSize : S(27.0f);
-    dl->AddText(gFontMono, exprFontSize, ImVec2(p0.x + pad, baseY), ToU32(col::Cyan), "f(x) =");
-    float labelW = gFontMono->CalcTextSizeA(exprFontSize, FLT_MAX, 0.0f, "f(x) = ").x;
+    dl->AddText(gFontMono, exprFontSize, ImVec2(p0.x + pad, baseY), ToU32(col::Cyan),
+                fnLabel.c_str());
+    float labelW = gFontMono->CalcTextSizeA(exprFontSize, FLT_MAX, 0.0f,
+                                           (fnLabel + " ").c_str()).x;
     float textX = p0.x + pad + labelW + S(8.0f);
     float textRight = p1.x - pad - S(8.0f);
 
@@ -183,8 +199,9 @@ void DrawExprCard(App& app, const ImVec2& size) {
     if (shift < 0) shift = 0;
 
     if (e.empty()) {
+        const char* placeholder = app.isComplexLevel() ? "1/(z - 1)" : "sin(x) + cos(2*x)";
         dl->AddText(gFontMono, exprFontSize, ImVec2(textX, baseY),
-                    Alpha(col::TextFaint, 0.62f), "sin(x) + cos(2*x)");
+                    Alpha(col::TextFaint, 0.62f), placeholder);
     } else {
         dl->PushClipRect(ImVec2(textX - S(2.0f), p0.y + S(26.0f)), ImVec2(textRight, p1.y - S(6.0f)),
                          true);
@@ -236,7 +253,7 @@ void DrawExprCard(App& app, const ImVec2& size) {
 // ---------------------------------------------------------------
 // 计算器键盘
 // ---------------------------------------------------------------
-enum class KeyKind { Func, Num, Op, Util, Submit };
+enum class KeyKind { Func, Var, Num, Op, Util, Submit };
 
 struct KeyDef {
     const char* label;
@@ -248,11 +265,43 @@ struct KeyDef {
 };
 
 void DrawKeypad(App& app, const ImVec2& origin, float width, float height) {
+    const bool complexMode = app.isComplexLevel();
     const int cols = 6;
     const int rows = 6;
+    const int totalRows = complexMode ? rows + 1 : rows;
     const float gap = S(8.0f);
     float kw = (width - gap * (cols - 1)) / cols;
-    float kh = (height - gap * (rows - 1)) / rows;
+    float kh = (height - gap * (totalRows - 1)) / totalRows;
+
+    // 复数专用键行：i / Re( / Im( / conj( / arg(
+    if (complexMode) {
+        struct CKey {
+            const char* label;
+            const char* insert;
+            bool isFn;
+        };
+        static const CKey ckeys[6] = {
+            {"i", "i", false},       {"Re(", "re", true},   {"Im(", "im", true},
+            {"conj(", "conj", true}, {"arg(", "arg", true}, {"|z|", "abs", true}};
+        for (int c = 0; c < cols; ++c) {
+            const CKey& k = ckeys[c];
+            ImVec2 pos(origin.x + c * (kw + gap), origin.y);
+            ImGui::SetCursorScreenPos(pos);
+            char id[64];
+            std::snprintf(id, sizeof(id), "##ckey_%d", c);
+            if (FunButton(id, k.label, ImVec2(kw, kh), StyleKeyFunc(), true, Icon::None)) {
+                if (!app.hasResult) {
+                    if (k.isFn)
+                        app.insertFunction(k.insert);
+                    else
+                        app.insertText(k.insert);
+                }
+            }
+        }
+    }
+    const float gridY = origin.y + (complexMode ? (kh + gap) : 0.0f);
+    const std::string varNameStr = app.level.primaryVar();
+    const char* varName = varNameStr.c_str();
 
     static const KeyDef keys[rows][cols] = {
         // 第一行：三角函数与指数
@@ -270,7 +319,7 @@ void DrawKeypad(App& app, const ImVec2& origin, float width, float height) {
          {"(", KeyKind::Op, "(", true, Icon::None, 0},
          {")", KeyKind::Op, ")", false, Icon::None, 0}},
         // 第三行：变量与光标
-        {{"x", KeyKind::Func, "x", false, Icon::None, 0},
+        {{"x", KeyKind::Var, "x", false, Icon::None, 0},
          {"tanh", KeyKind::Func, "tanh", true, Icon::None, 0},
          {"sinh", KeyKind::Func, "sinh", true, Icon::None, 0},
          {"log2", KeyKind::Func, "log2", true, Icon::None, 0},
@@ -303,7 +352,7 @@ void DrawKeypad(App& app, const ImVec2& origin, float width, float height) {
     for (int r = 0; r < rows; ++r) {
         for (int c = 0; c < cols; ++c) {
             const KeyDef& k = keys[r][c];
-            ImVec2 pos(origin.x + c * (kw + gap), origin.y + r * (kh + gap));
+            ImVec2 pos(origin.x + c * (kw + gap), gridY + r * (kh + gap));
             ImGui::SetCursorScreenPos(pos);
             char id[64];
             std::snprintf(id, sizeof(id), "##key_%d_%d", r, c);
@@ -311,22 +360,26 @@ void DrawKeypad(App& app, const ImVec2& origin, float width, float height) {
             const ButtonStyle* st = &StyleKey();
             switch (k.kind) {
                 case KeyKind::Func: st = &StyleKeyFunc(); break;
+                case KeyKind::Var: st = &StyleKeyFunc(); break;
                 case KeyKind::Num: st = &StyleKey(); break;
                 case KeyKind::Op: st = &StyleKeyOp(); break;
                 case KeyKind::Util: st = &StyleKeyUtil(); break;
                 case KeyKind::Submit: st = &StylePrimary(); break;
             }
             ImFont* labelFont = (k.kind == KeyKind::Num) ? gFontMono : gFontBody;
+            const char* label = (k.kind == KeyKind::Var) ? varName : k.label;
             bool clicked = false;
-            if (k.label[0] == 0)
+            if (label[0] == 0)
                 clicked = FunButton(id, "", ImVec2(kw, kh), *st, true, k.icon);
             else
-                clicked = FunButton(id, k.label, ImVec2(kw, kh), *st, true, k.icon, labelFont);
+                clicked = FunButton(id, label, ImVec2(kw, kh), *st, true, k.icon, labelFont);
 
             if (!clicked || app.hasResult) continue;
             switch (k.action) {
                 case 0:
-                    if (k.isFunction)
+                    if (k.kind == KeyKind::Var)
+                        app.insertText(app.level.primaryVar());
+                    else if (k.isFunction)
                         app.insertFunction(k.insert);
                     else
                         app.insertText(k.insert);
@@ -397,7 +450,9 @@ void DrawBottomBar(App& app, float w) {
 
     // 键盘提示
     if (!compact) {
-        const char* tips = "回车 提交 · Backspace 删除 · ← → 移动光标 · Esc 返回";
+        const char* tips = app.isComplexLevel()
+                               ? "回车 提交 · i 可直接键入 · 拖拽/滚轮缩放复平面 · Esc 返回"
+                               : "回车 提交 · Backspace 删除 · ← → 移动光标 · Esc 返回";
         ImVec2 ts = gFontBody->CalcTextSizeA(S(12.0f), FLT_MAX, 0.0f, tips);
         dl->AddText(gFontBody, S(12.0f), ImVec2(p1.x - S(22.0f) - S(210.0f) - ts.x - S(24.0f), by + S(30.0f)),
                     ToU32(col::TextFaint), tips);
@@ -686,17 +741,22 @@ void DrawGame(App& app) {
 
     // 键盘下方提示
     {
-        const char* tip = "数字 / 字母可直接键入 · 函数键自动补全括号";
+        const char* tip = app.isComplexLevel()
+                              ? "变量 z 取复数 · i 是虚数单位 · Re/Im/conj/arg 可用"
+                              : "数字 / 字母可直接键入 · 函数键自动补全括号";
         ImVec2 ts = gFontBody->CalcTextSizeA(S(12.0f), FLT_MAX, 0.0f, tip);
         dl->AddText(gFontBody, S(12.0f),
                     ImVec2(centerX + (centerW - ts.x) * 0.5f, top + mainH - S(16.0f)),
                     ToU32(col::TextFaint), tip);
     }
 
-    // 右：函数图像（小窗口隐藏）
+    // 右：函数图像（实数域曲线 / 复数域着色图；小窗口隐藏）
     if (rightW > 200.0f) {
         ImGui::SetCursorScreenPos(ImVec2(rightX, top));
-        DrawPlotCard(app, ImVec2(rightW, mainH));
+        if (app.isComplexLevel())
+            DrawComplexPlotCard(app, ImVec2(rightW, mainH));
+        else
+            DrawPlotCard(app, ImVec2(rightW, mainH));
     }
 
     DrawBottomBar(app, w);

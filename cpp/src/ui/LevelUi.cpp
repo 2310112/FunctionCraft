@@ -77,6 +77,55 @@ std::string FormatRange(double lo, double hi) {
     return "[" + FormatNumber(lo) + ", " + FormatNumber(hi) + "]";
 }
 
+std::string FormatComplex(const Cplx& z) {
+    const double eps = 1e-9;
+    bool hasRe = std::fabs(z.re) > eps;
+    bool hasIm = std::fabs(z.im) > eps;
+    if (!hasRe && !hasIm) return "0";
+
+    auto fmtImag = [](double v) -> std::string {
+        // 1i / -1i 简化为 i / -i
+        if (std::fabs(std::fabs(v) - 1.0) < 1e-9) return v < 0 ? "-i" : "i";
+        return FormatNumber(v) + "i";
+    };
+
+    if (!hasIm) return FormatNumber(z.re);
+    if (!hasRe) return fmtImag(z.im);
+    std::string imPart = fmtImag(z.im);
+    if (z.im > 0) return FormatNumber(z.re) + "+" + imPart;
+    return FormatNumber(z.re) + imPart;  // im 负数自带 '-'，FormatNumber 会输出 -x
+}
+
+std::string FormatRegion(const ComplexRegion& r) {
+    using K = ComplexRegion::Kind;
+    switch (r.kind) {
+        case K::Disk: {
+            if (std::fabs(r.center.re) < 1e-9 && std::fabs(r.center.im) < 1e-9)
+                return "|z| < " + FormatNumber(r.radius);
+            return "|z - (" + FormatComplex(r.center) + ")| < " + FormatNumber(r.radius);
+        }
+        case K::Annulus: {
+            std::string ring = FormatNumber(r.radius) + " < |z";
+            if (std::fabs(r.center.re) > 1e-9 || std::fabs(r.center.im) > 1e-9)
+                ring += " - (" + FormatComplex(r.center) + ")";
+            ring += "| < " + FormatNumber(r.outerRadius);
+            return ring;
+        }
+        case K::Rectangle:
+            return "Re z ∈ " + FormatRange(r.x0, r.x1) + " 且 Im z ∈ " + FormatRange(r.y0, r.y1);
+        case K::HalfPlaneUpper: return "上半平面 Im z > " + FormatNumber(r.yLine);
+        case K::HalfPlaneLower: return "下半平面 Im z < " + FormatNumber(r.yLine);
+        case K::HalfPlaneRight: return "右半平面 Re z > " + FormatNumber(r.xLine);
+        case K::ExteriorOfDisk: {
+            if (std::fabs(r.center.re) < 1e-9 && std::fabs(r.center.im) < 1e-9)
+                return "|z| > " + FormatNumber(r.radius);
+            return "|z - (" + FormatComplex(r.center) + ")| > " + FormatNumber(r.radius);
+        }
+        case K::Plane: return "整个复平面";
+        default: return "复平面区域";
+    }
+}
+
 // ---------------------------------------------------------------
 // 约束描述
 // ---------------------------------------------------------------
@@ -130,6 +179,31 @@ std::string ConstraintDesc(const Constraint& c) {
         case ConstraintKind::PeriodicSymmetry:
             return "图像关于点 (" + FormatNumber(c.point) + ", " + FormatNumber(c.value) +
                    ") 中心对称";
+
+        // ---------- 复变约束（str()/describe 未就绪时的兜底） ----------
+        case ConstraintKind::HolomorphicOn:
+            return "在 " + FormatRegion(c.region) + " 内解析（全纯）";
+        case ConstraintKind::NoSingularityIn:
+            return "在 " + FormatRegion(c.region) + " 内没有奇点";
+        case ConstraintKind::PoleOrderAt:
+            return "f(z) 在 z = " + FormatComplex(c.cpoint) + " 处是 " +
+                   std::to_string(c.order) + " 阶极点";
+        case ConstraintKind::ResidueAt:
+            return "留数 Res(f, " + FormatComplex(c.cpoint) + ") = " + FormatComplex(c.cvalue);
+        case ConstraintKind::ContourIntegralValue: {
+            std::string path = "|z";
+            if (std::fabs(c.region.center.re) > 1e-9 || std::fabs(c.region.center.im) > 1e-9)
+                path += " - (" + FormatComplex(c.region.center) + ")";
+            path += "| = " + FormatNumber(c.region.radius);
+            return "围道积分 ∮_{" + path + "} f dz = " + FormatComplex(c.cvalue);
+        }
+        case ConstraintKind::ZeroCountInRegion:
+            return "在 " + FormatRegion(c.region) + " 内恰有 " + std::to_string(c.count) +
+                   " 个零点";
+        case ConstraintKind::ModulusRangeOn:
+            return "在 " + FormatRegion(c.region) + " 内 |f(z)| ∈ " + FormatRange(c.lo, c.hi);
+        case ConstraintKind::ComplexBoundaryValue:
+            return "f(" + FormatComplex(c.cpoint) + ") = " + FormatComplex(c.cvalue);
         default: return "未知约束";
     }
 }
@@ -322,6 +396,98 @@ std::vector<LevelEntry> MakeFallbackLevels() {
     }
 
     return out;
+}
+
+LevelDef MakeComplexTestLevel(const std::string& idHint) {
+    LevelDef d;
+    d.domain = DomainKind::Complex;
+    d.vars = {"z"};
+    d.parScore = 85.0;
+    d.chapter = 5;
+
+    const bool zerosLevel = (idHint.find("5-2") != std::string::npos ||
+                             idHint.find("zero") != std::string::npos);
+    const bool residueLevel = (idHint.find("6-") != std::string::npos ||
+                               idHint.find("residue") != std::string::npos);
+
+    if (zerosLevel) {
+        d.id = "test-c-zeros";
+        d.title = "零点星芒";
+        d.reference = "z*z - 1";
+        d.intro = "复平面着色图中，零点处色相环绕一周，会形成四射的星芒。";
+        d.hint = "试一个在单位圆附近有两个零点的多项式，例如 z*z - 1。";
+        d.chapter = 5;
+        Constraint c;
+        c.kind = ConstraintKind::ZeroCountInRegion;
+        c.region = ComplexRegion::disk(Cplx(0.0, 0.0), 1.5);
+        c.count = 2;
+        c.var = "z";
+        c.label = "在 |z| < 1.5 内恰有 2 个零点";
+        d.constraints.push_back(c);
+        Constraint c2;
+        c2.kind = ConstraintKind::ComplexBoundaryValue;
+        c2.cpoint = Cplx(1.0, 0.0);
+        c2.cvalue = Cplx(0.0, 0.0);
+        c2.var = "z";
+        c2.label = "f(1) = 0";
+        d.constraints.push_back(c2);
+    } else if (residueLevel) {
+        d.id = "test-c-residue";
+        d.title = "留数与积分";
+        d.reference = "1/(z*z + 1)";
+        d.intro = "极点处色相绕一圈、明度骤亮，形成漩涡；围道积分可由留数算出。";
+        d.hint = "试试 1/(z*z+1)：它在 ±i 各有一个一阶极点。";
+        d.chapter = 6;
+        Constraint c;
+        c.kind = ConstraintKind::ResidueAt;
+        c.cpoint = Cplx(0.0, 1.0);
+        c.cvalue = Cplx(0.0, -0.5);
+        c.var = "z";
+        c.label = "留数 Res(f, i) = -i/2";
+        d.constraints.push_back(c);
+        Constraint c2;
+        c2.kind = ConstraintKind::ContourIntegralValue;
+        c2.region = ComplexRegion::disk(Cplx(0.0, 0.0), 2.0);
+        c2.cvalue = Cplx(0.0, 0.0);
+        c2.var = "z";
+        c2.label = "围道积分 ∮_{|z| = 2} f dz = 0";
+        d.constraints.push_back(c2);
+        Constraint c3;
+        c3.kind = ConstraintKind::HolomorphicOn;
+        c3.region = ComplexRegion::rectangle(-2.0, 2.0, -2.0, 2.0);
+        c3.var = "z";
+        c3.label = "在矩形 Re z ∈ [-2, 2] 且 Im z ∈ [-2, 2] 内除极点外解析";
+        d.constraints.push_back(c3);
+    } else {
+        d.id = "test-c-pole";
+        d.title = "复平面初探";
+        d.reference = "1/(z - 1)";
+        d.intro = "复平面上的着色彩图：色相表示相位，明度表示模的大小。";
+        d.hint = "试试 1/(z - 1)：它在 z = 1 处有一个一阶极点，会形成漩涡。";
+        d.chapter = 5;
+        Constraint c;
+        c.kind = ConstraintKind::ResidueAt;
+        c.cpoint = Cplx(1.0, 0.0);
+        c.cvalue = Cplx(1.0, 0.0);
+        c.var = "z";
+        c.label = "留数 Res(f, 1) = 1";
+        d.constraints.push_back(c);
+        Constraint c2;
+        c2.kind = ConstraintKind::ComplexBoundaryValue;
+        c2.cpoint = Cplx(0.0, 0.0);
+        c2.cvalue = Cplx(-1.0, 0.0);
+        c2.var = "z";
+        c2.label = "f(0) = -1";
+        d.constraints.push_back(c2);
+        Constraint c3;
+        c3.kind = ConstraintKind::PoleOrderAt;
+        c3.cpoint = Cplx(1.0, 0.0);
+        c3.order = 1;
+        c3.var = "z";
+        c3.label = "在 z = 1 处是一阶极点";
+        d.constraints.push_back(c3);
+    }
+    return d;
 }
 
 LevelDef MakeEndlessFallbackLevel(int index, const std::vector<LevelDef>& pool) {

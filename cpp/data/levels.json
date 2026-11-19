@@ -838,5 +838,401 @@
     ],
     "reference": "exp(-x*x)",
     "parScore": 80
+  },
+  {
+    "id": "5-1",
+    "title": "一次旋转",
+    "chapter": 5,
+    "intro": "从这一章起，变量 z 取复值。复数的乘法就是旋转与缩放，最朴素的多项式会立刻展现这种几何直觉。",
+    "hint": "从最简单的二次多项式猜起：先让它经过 1，再算算 i 的平方落在哪里。复数乘法会把点绕原点旋转，这正是解析函数在复平面上「不变形」的直观体现。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 2}
+      },
+      {
+        "type": "value_complex",
+        "point": [1, 0],
+        "value": [1, 0]
+      },
+      {
+        "type": "value_complex",
+        "point": [0, 1],
+        "value": [-1, 0]
+      }
+    ],
+    "reference": "z^2",
+    "parScore": 88
+  },
+  {
+    "id": "5-2",
+    "title": "指数的圆周",
+    "chapter": 5,
+    "hint": "指数函数在复平面里最神奇的一点：沿着虚轴走，它会在单位圆上转圈。先让 f(0)=1，再用「实部越大、模越大」的直觉估一个够用的模上界。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "rectangle", "x0": -1, "x1": 1, "y0": -1, "y1": 1}
+      },
+      {
+        "type": "no_singularity",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 2}
+      },
+      {
+        "type": "value_complex",
+        "point": [0, 0],
+        "value": [1, 0]
+      },
+      {
+        "type": "modulus_range",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 1},
+        "bounds": [0, 3]
+      }
+    ],
+    "reference": "exp(z)",
+    "parScore": 86
+  },
+  {
+    "id": "5-3",
+    "title": "真假解析",
+    "chapter": 5,
+    "hint": "z、conj(z)、|z|² 在实轴上长得一模一样，但一到非实点就分道扬镳；其中只有一个「处处光滑」。用 i 和 1+2i 两个非实点把真的那个认出来。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 1.5}
+      },
+      {
+        "type": "value_complex",
+        "point": [0, 1],
+        "value": [0, 1]
+      },
+      {
+        "type": "value_complex",
+        "point": [1, 2],
+        "value": [1, 2]
+      }
+    ],
+    "reference": "z",
+    "parScore": 90
+  },
+  {
+    "id": "5-4",
+    "title": "上半平面的波形",
+    "chapter": 5,
+    "hint": "先回忆实数轴上哪个波形满足 sin(0)=0、sin(π/2)=1，再看它能不能自然延伸到整个上半平面而没有任何坏点。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "half_upper", "yLine": 0}
+      },
+      {
+        "type": "no_singularity",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 1.5}
+      },
+      {
+        "type": "value_complex",
+        "point": [0, 0],
+        "value": [0, 0]
+      },
+      {
+        "type": "value_complex",
+        "point": ["pi/2", 0],
+        "value": [1, 0]
+      }
+    ],
+    "reference": "sin(z)",
+    "parScore": 86
+  },
+  {
+    "id": "5-5",
+    "title": "复零点",
+    "chapter": 5,
+    "hint": "实系数多项式也能在复数里取到 0：什么东西的平方等于 -1？先让 f(0)=1，再调整常数项，让它在 i 处恰好归零。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 2}
+      },
+      {
+        "type": "no_singularity",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 2}
+      },
+      {
+        "type": "value_complex",
+        "point": [0, 0],
+        "value": [1, 0]
+      },
+      {
+        "type": "value_complex",
+        "point": [0, 1],
+        "value": [0, 0]
+      }
+    ],
+    "reference": "z^2 + 1",
+    "parScore": 84
+  },
+  {
+    "id": "5-6",
+    "title": "处处光滑",
+    "chapter": 5,
+    "hint": "把指数函数乘上一个多项式，它会在整个复平面上处处光滑。用 f(0) 定住一个因子，再让 |f| 在单位圆盘里别超过 3。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 2}
+      },
+      {
+        "type": "no_singularity",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 1}
+      },
+      {
+        "type": "value_complex",
+        "point": [0, 0],
+        "value": [0, 0]
+      },
+      {
+        "type": "modulus_range",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 1},
+        "bounds": [0, 3]
+      },
+      {
+        "type": "complexity_limit",
+        "max_func_calls": 3
+      }
+    ],
+    "reference": "z*exp(z)",
+    "parScore": 82
+  },
+  {
+    "id": "6-1",
+    "title": "原点上的极点",
+    "chapter": 6,
+    "intro": "这一章把前面积累的工具用来数极点、算留数。复变函数最漂亮的结论之一是：闭曲线上的积分只由围道内部的东西决定。",
+    "hint": "最简单的分式 1/(z-a) 只在 a 处出问题。把 a 放到原点，观察它在圆环 1<|z|<2 上的表现：圆环里没有奇点，只有一个一阶极点，沿大圆积分会留下 2πi 的整数倍。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "annulus", "center": [0, 0], "radius": 1, "outerRadius": 2}
+      },
+      {
+        "type": "pole_order",
+        "point": [0, 0],
+        "order": 1
+      },
+      {
+        "type": "residue",
+        "point": [0, 0],
+        "value": [1, 0]
+      },
+      {
+        "type": "contour_integral",
+        "center": [0, 0],
+        "radius": 2,
+        "value": "2*pi*i"
+      }
+    ],
+    "reference": "1/z",
+    "parScore": 84
+  },
+  {
+    "id": "6-2",
+    "title": "移位的极点",
+    "chapter": 6,
+    "hint": "把上一关的极点从原点搬到 1，圆心和半径都要跟着极点走：极点在 z=1，就该让围道绕 z=1 转一圈，而在 Re z > 1.5 的半平面上它反而干净得很。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "half_right", "xLine": 1.5}
+      },
+      {
+        "type": "pole_order",
+        "point": [1, 0],
+        "order": 1
+      },
+      {
+        "type": "residue",
+        "point": [1, 0],
+        "value": [1, 0]
+      },
+      {
+        "type": "contour_integral",
+        "center": [1, 0],
+        "radius": 1,
+        "value": "2*pi*i"
+      }
+    ],
+    "reference": "1/(z-1)",
+    "parScore": 84
+  },
+  {
+    "id": "6-3",
+    "title": "积分归零",
+    "chapter": 6,
+    "hint": "解析函数沿闭曲线积分会互相抵消——这一关的积分必须是 0，而不是 2πi。剩下的事：让圆盘里正好有两个零点，再用 f(0)、f(i) 把二次式定下来。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 2}
+      },
+      {
+        "type": "zero_count_region",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 2},
+        "count": 2
+      },
+      {
+        "type": "contour_integral",
+        "center": [0, 0],
+        "radius": 1.5,
+        "value": [0, 0]
+      },
+      {
+        "type": "value_complex",
+        "point": [0, 0],
+        "value": [-1, 0]
+      },
+      {
+        "type": "value_complex",
+        "point": [0, 1],
+        "value": [-2, 0]
+      }
+    ],
+    "reference": "z^2 - 1",
+    "parScore": 82
+  },
+  {
+    "id": "6-4",
+    "title": "圆盘外的极点",
+    "chapter": 6,
+    "hint": "把二次式塞进分母，就能在远处造出两个对称的极点，而圆盘内部仍然干干净净。圆盘内的积分还是 0；圆外的留数可以用「分子 / 分母的导数」速算。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 2.5}
+      },
+      {
+        "type": "zero_count_region",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 2},
+        "count": 2
+      },
+      {
+        "type": "contour_integral",
+        "center": [0, 0],
+        "radius": 2.5,
+        "value": [0, 0]
+      },
+      {
+        "type": "pole_order",
+        "point": [3, 0],
+        "order": 1
+      },
+      {
+        "type": "residue",
+        "point": [3, 0],
+        "value": "4/3"
+      }
+    ],
+    "reference": "(z^2 - 1)/(z^2 - 9)",
+    "parScore": 80
+  },
+  {
+    "id": "6-5",
+    "title": "留数合奏",
+    "chapter": 6,
+    "hint": "让两个对称的极点各贡献一份相等的留数，沿把两者都包住的大圆积分就是留数之和乘以 2πi。先把分子分母的次数配平，使两个留数相同，再用圆外一点的取值验证。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "pole_order",
+        "point": [1, 0],
+        "order": 1
+      },
+      {
+        "type": "residue",
+        "point": [1, 0],
+        "value": [1, 0]
+      },
+      {
+        "type": "residue",
+        "point": [-1, 0],
+        "value": [1, 0]
+      },
+      {
+        "type": "contour_integral",
+        "center": [0, 0],
+        "radius": 2,
+        "value": "4*pi*i"
+      },
+      {
+        "type": "value_complex",
+        "point": [2, 0],
+        "value": "4/3"
+      }
+    ],
+    "reference": "2*z/(z^2 - 1)",
+    "parScore": 80
+  },
+  {
+    "id": "6-6",
+    "title": "留数定理",
+    "chapter": 6,
+    "hint": "毕业设计：圆盘里数零点、圆周上求积分、圆外确定极点。取分子为一次式，两个对称极点会给出相等的留数；让这两个留数之和恰好为 1，大圆积分就是 2πi。",
+    "domain": "complex",
+    "vars": ["z"],
+    "constraints": [
+      {
+        "type": "holomorphic",
+        "region": {"kind": "exterior_disk", "center": [0, 0], "radius": 2.5}
+      },
+      {
+        "type": "pole_order",
+        "point": [2, 0],
+        "order": 1
+      },
+      {
+        "type": "residue",
+        "point": [2, 0],
+        "value": "1/2"
+      },
+      {
+        "type": "zero_count_region",
+        "region": {"kind": "disk", "center": [0, 0], "radius": 1},
+        "count": 1
+      },
+      {
+        "type": "contour_integral",
+        "center": [0, 0],
+        "radius": 3,
+        "value": "2*pi*i"
+      },
+      {
+        "type": "residue",
+        "point": [-2, 0],
+        "value": "1/2"
+      }
+    ],
+    "reference": "z/(z^2 - 4)",
+    "parScore": 78
   }
 ]

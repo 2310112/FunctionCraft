@@ -20,6 +20,7 @@ add_library(fcg_core STATIC
     src/core/Json.cpp
     src/core/Simplify.cpp
     src/core/Diff.cpp
+    src/core/Complex.cpp
     src/core/Domain.cpp
     src/core/Limit.cpp
     src/core/Constraint.cpp

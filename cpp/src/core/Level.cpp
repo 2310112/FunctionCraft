@@ -200,6 +200,24 @@ bool kindFromString(const std::string& s, ConstraintKind* out) {
         {"point_symmetry", ConstraintKind::PeriodicSymmetry},
         {"periodic_symmetry", ConstraintKind::PeriodicSymmetry},
         {"center_symmetry", ConstraintKind::PeriodicSymmetry},
+        // ---------- 复变 ----------
+        {"holomorphic", ConstraintKind::HolomorphicOn},
+        {"analytic_complex", ConstraintKind::HolomorphicOn},
+        {"no_singularity", ConstraintKind::NoSingularityIn},
+        {"singularity_free", ConstraintKind::NoSingularityIn},
+        {"pole_order", ConstraintKind::PoleOrderAt},
+        {"pole", ConstraintKind::PoleOrderAt},
+        {"residue", ConstraintKind::ResidueAt},
+        {"residues", ConstraintKind::ResidueAt},
+        {"contour_integral", ConstraintKind::ContourIntegralValue},
+        {"contour", ConstraintKind::ContourIntegralValue},
+        {"integral", ConstraintKind::ContourIntegralValue},
+        {"zero_count_region", ConstraintKind::ZeroCountInRegion},
+        {"zeros_region", ConstraintKind::ZeroCountInRegion},
+        {"modulus_range", ConstraintKind::ModulusRangeOn},
+        {"modulus", ConstraintKind::ModulusRangeOn},
+        {"value_complex", ConstraintKind::ComplexBoundaryValue},
+        {"complex_value", ConstraintKind::ComplexBoundaryValue},
     };
     auto it = table.find(s);
     if (it == table.end()) return false;
@@ -238,6 +256,105 @@ bool opFromName(const std::string& raw, Op* out) {
     auto it = table.find(s);
     if (it == table.end()) return false;
     *out = it->second;
+    return true;
+}
+
+// -----------------------------------------------------------------
+// 复数与复平面区域解析
+// -----------------------------------------------------------------
+// 复数三种写法：数字（实部）、字符串表达式（"2*pi*i"）、[实部, 虚部]
+bool parseComplexValue(const Json& v, Cplx* out, std::string* err, const std::string& where) {
+    if (v.isNumber()) {
+        *out = Cplx(v.asNumber(), 0.0);
+        return true;
+    }
+    if (v.isString()) {
+        ParseError pe;
+        ExprP e = parseExpr(v.asString(), &pe);
+        if (!e) {
+            if (err) *err = where + " 的复数表达式无法解析：" + pe.message;
+            return false;
+        }
+        VarMap none;
+        auto r = evaluate(e, none);
+        if (!r.ok) {
+            if (err) *err = where + " 的复数表达式无法求值：" + r.error;
+            return false;
+        }
+        *out = r.value;
+        return true;
+    }
+    if (v.isArray() && v.size() == 2) {
+        double re = 0, im = 0;
+        if (!jsonToNumber(v.at(0), &re, err, where + " 的实部")) return false;
+        if (!jsonToNumber(v.at(1), &im, err, where + " 的虚部")) return false;
+        *out = Cplx(re, im);
+        return true;
+    }
+    if (err) *err = where + " 必须是数字、表达式字符串或 [实部, 虚部]";
+    return false;
+}
+
+bool readNumOr(const Json& obj, const char* key, double def, double* out) {
+    if (obj.has(key) && obj[key].isNumber()) {
+        *out = obj[key].asNumber();
+        return true;
+    }
+    *out = def;
+    return false;
+}
+
+bool parseComplexRegion(const Json& v, ComplexRegion* out, std::string* err,
+                        const std::string& where) {
+    if (!v.isObject()) {
+        if (err) *err = where + " 的 \"region\" 必须是对象";
+        return false;
+    }
+    std::string kind = v.has("kind") && v["kind"].isString() ? v["kind"].asString() : "disk";
+    ComplexRegion r;
+    auto centerOf = [&](Cplx def) {
+        if (v.has("center")) {
+            Cplx c = def;
+            if (parseComplexValue(v["center"], &c, err, where + " 的坐标中心")) return c;
+        }
+        return def;
+    };
+    if (kind == "disk" || kind == "circle") {
+        r.kind = ComplexRegion::Kind::Disk;
+        r.center = centerOf(Cplx(0, 0));
+        r.radius = v.has("radius") ? v["radius"].asNumber(1.0) : 1.0;
+    } else if (kind == "annulus" || kind == "ring") {
+        r.kind = ComplexRegion::Kind::Annulus;
+        r.center = centerOf(Cplx(0, 0));
+        r.radius = v.has("radius") ? v["radius"].asNumber(1.0) : 1.0;
+        r.outerRadius = v.has("outerRadius") ? v["outerRadius"].asNumber(2.0)
+                                             : (v.has("outer_radius") ? v["outer_radius"].asNumber(2.0) : 2.0);
+    } else if (kind == "rectangle" || kind == "rect") {
+        r.kind = ComplexRegion::Kind::Rectangle;
+        readNumOr(v, "x0", -1.0, &r.x0);
+        readNumOr(v, "x1", 1.0, &r.x1);
+        readNumOr(v, "y0", -1.0, &r.y0);
+        readNumOr(v, "y1", 1.0, &r.y1);
+    } else if (kind == "half_upper" || kind == "upper_half_plane") {
+        r.kind = ComplexRegion::Kind::HalfPlaneUpper;
+        readNumOr(v, "yLine", 0.0, &r.yLine);
+    } else if (kind == "half_lower" || kind == "lower_half_plane") {
+        r.kind = ComplexRegion::Kind::HalfPlaneLower;
+        readNumOr(v, "yLine", 0.0, &r.yLine);
+    } else if (kind == "half_right" || kind == "right_half_plane") {
+        r.kind = ComplexRegion::Kind::HalfPlaneRight;
+        readNumOr(v, "xLine", 0.0, &r.xLine);
+    } else if (kind == "exterior_disk" || kind == "outside") {
+        r.kind = ComplexRegion::Kind::ExteriorOfDisk;
+        r.center = centerOf(Cplx(0, 0));
+        r.radius = v.has("radius") ? v["radius"].asNumber(1.0) : 1.0;
+    } else if (kind == "plane" || kind == "all") {
+        r.kind = ComplexRegion::Kind::Plane;
+    } else {
+        if (err) *err = where + " 的 region.kind 未知：\"" + kind + "\"";
+        return false;
+    }
+    *out = r;
     return true;
 }
 
@@ -471,6 +588,97 @@ bool constraintFromJson(const Json& j, Constraint* out, std::string* err,
             if (!readNumField(j, "value", &c.value, err, where, true)) return false;
             break;
         }
+
+        // ---------------- 复变约束 ----------------
+        case ConstraintKind::HolomorphicOn:
+        case ConstraintKind::NoSingularityIn: {
+            if (!j.has("region")) {
+                if (err) *err = where + " 缺少 \"region\"";
+                return false;
+            }
+            if (!parseComplexRegion(j["region"], &c.region, err, where)) return false;
+            break;
+        }
+        case ConstraintKind::PoleOrderAt: {
+            if (!j.has("point")) {
+                if (err) *err = where + " 缺少 \"point\"";
+                return false;
+            }
+            if (!parseComplexValue(j["point"], &c.cpoint, err, where + " 的 point")) return false;
+            c.order = j.has("order") ? j["order"].asInt(1) : 1;
+            if (c.order < 1) {
+                if (err) *err = where + " 的 \"order\" 必须 >= 1";
+                return false;
+            }
+            break;
+        }
+        case ConstraintKind::ResidueAt: {
+            if (!j.has("point") || !j.has("value")) {
+                if (err) *err = where + " 缺少 \"point\" 或 \"value\"";
+                return false;
+            }
+            if (!parseComplexValue(j["point"], &c.cpoint, err, where + " 的 point")) return false;
+            if (!parseComplexValue(j["value"], &c.cvalue, err, where + " 的 value")) return false;
+            break;
+        }
+        case ConstraintKind::ComplexBoundaryValue: {
+            if (!j.has("point") || !j.has("value")) {
+                if (err) *err = where + " 缺少 \"point\" 或 \"value\"";
+                return false;
+            }
+            if (!parseComplexValue(j["point"], &c.cpoint, err, where + " 的 point")) return false;
+            if (!parseComplexValue(j["value"], &c.cvalue, err, where + " 的 value")) return false;
+            break;
+        }
+        case ConstraintKind::ContourIntegralValue: {
+            if (j.has("center")) {
+                if (!parseComplexValue(j["center"], &c.cpoint, err, where + " 的 center")) return false;
+            }
+            c.radius = j.has("radius") ? j["radius"].asNumber(1.0) : 1.0;
+            if (!(c.radius > 0.0)) {
+                if (err) *err = where + " 的 \"radius\" 必须为正";
+                return false;
+            }
+            if (!j.has("value")) {
+                if (err) *err = where + " 缺少 \"value\"";
+                return false;
+            }
+            if (!parseComplexValue(j["value"], &c.cvalue, err, where + " 的 value")) return false;
+            break;
+        }
+        case ConstraintKind::ZeroCountInRegion: {
+            if (!j.has("region")) {
+                if (err) *err = where + " 缺少 \"region\"";
+                return false;
+            }
+            if (!parseComplexRegion(j["region"], &c.region, err, where)) return false;
+            c.count = j.has("count") ? j["count"].asInt(0)
+                                     : (j.has("zeros") ? j["zeros"].asInt(0) : 0);
+            if (c.count < 0) {
+                if (err) *err = where + " 的 \"count\" 不能为负";
+                return false;
+            }
+            break;
+        }
+        case ConstraintKind::ModulusRangeOn: {
+            if (!j.has("region")) {
+                if (err) *err = where + " 缺少 \"region\"";
+                return false;
+            }
+            if (!parseComplexRegion(j["region"], &c.region, err, where)) return false;
+            if (j.has("bounds") && j["bounds"].isArray() && j["bounds"].size() == 2) {
+                if (!jsonToNumber(j["bounds"].at(0), &c.lo, err, where + " 的下界")) return false;
+                if (!jsonToNumber(j["bounds"].at(1), &c.hi, err, where + " 的上界")) return false;
+            } else {
+                if (!readNumField(j, "lo", &c.lo, err, where, true)) return false;
+                if (!readNumField(j, "hi", &c.hi, err, where, true)) return false;
+            }
+            if (c.lo > c.hi) {
+                if (err) *err = where + " 的下界大于上界";
+                return false;
+            }
+            break;
+        }
     }
 
     *out = c;
@@ -589,6 +797,17 @@ LevelDef levelFromJson(const Json& j, std::string* err) {
             return L;
         L.parScore = p;
     }
+    if (j.has("domain") && j["domain"].isString()) {
+        const std::string d = j["domain"].asString();
+        if (d == "complex" || d == "Complex" || d == "复数" || d == "复变") {
+            L.domain = DomainKind::Complex;
+        } else if (d == "real" || d == "Real" || d == "实数") {
+            L.domain = DomainKind::Real;
+        } else {
+            *e = "关卡 " + L.id + " 的 \"domain\" 必须是 real 或 complex";
+            return L;
+        }
+    }
     if (j.has("vars") && j["vars"].isArray() && j["vars"].size() > 0) {
         L.vars.clear();
         for (size_t i = 0; i < j["vars"].size(); ++i) {
@@ -613,6 +832,18 @@ LevelDef levelFromJson(const Json& j, std::string* err) {
             return L;
         }
         L.constraints.push_back(c);
+    }
+    // 复数关卡：未显式声明变量时默认用 z
+    if (L.isComplex() && L.vars.size() == 1 && L.vars[0] == "x" &&
+        !(j.has("vars") && j["vars"].isArray() && j["vars"].size() > 0)) {
+        L.vars[0] = "z";
+    }
+    // 约束未显式指定变量时，跟随关卡主变量
+    {
+        const std::string mainVar = L.primaryVar();
+        for (auto& c : L.constraints) {
+            if (c.var.empty() || c.var == "x") c.var = mainVar;
+        }
     }
     std::string verr;
     if (!L.valid(&verr)) {

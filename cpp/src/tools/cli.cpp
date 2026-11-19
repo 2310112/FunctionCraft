@@ -9,6 +9,7 @@
 #include "core/Constraint.h"
 #include "core/Domain.h"
 #include "core/EndlessGen.h"
+#include "core/Complex.h"
 #include "core/Diff.h"
 #include "core/Expr.h"
 #include "core/Level.h"
@@ -35,6 +36,10 @@ void PrintUsage() {
   fcg_cli domain   <expr>                     打印定义域
   fcg_cli diff     <expr>                     求导
   fcg_cli limit    <expr> <x0>                求 x→x0 的极限
+  fcg_cli cz       <expr> <re> <im>            复数点求值 + 全纯结构检查
+  fcg_cli cres     <expr> <re> <im>            留数
+  fcg_cli cint     <expr> <re> <im> <r>        圆周围道积分
+  fcg_cli czeros   <expr> <re> <im> <r>        圆内零点个数 + 全纯性
 )");
 }
 
@@ -227,6 +232,74 @@ int CmdDiff(const std::string& expr) {
     return 0;
 }
 
+std::string CplxStr(Cplx v) {
+    char buf[128];
+    if (std::fabs(v.im) < 1e-12) {
+        std::snprintf(buf, sizeof(buf), "%.10g", v.re);
+        return buf;
+    }
+    std::snprintf(buf, sizeof(buf), "%.10g %+.10gi", v.re, v.im);
+    return buf;
+}
+
+int CmdComplexEval(const std::string& expr, Cplx z) {
+    ExprP e = MustParse(expr);
+    if (!e) return 1;
+    auto r = evalComplex(e, "z", z);
+    if (!r.ok) {
+        std::printf("求值失败: %s\n", r.error.c_str());
+        return 1;
+    }
+    std::printf("f(%s) = %s   |f| = %.10g\n", CplxStr(z).c_str(), CplxStr(r.value).c_str(),
+                r.value.abs());
+    Op bad = Op::COUNT;
+    bool allHolo = builtFromHolomorphicOps(e, &bad);
+    std::printf("全纯结构: %s%s\n", allHolo ? "是" : "否",
+                allHolo ? "" : (std::string("（含 ") + opName(bad) + "）").c_str());
+    return 0;
+}
+
+int CmdComplexResidue(const std::string& expr, Cplx z0) {
+    ExprP e = MustParse(expr);
+    if (!e) return 1;
+    auto r = residueAt(e, "z", z0);
+    if (!r.ok) {
+        std::printf("留数计算失败: %s\n", r.error.c_str());
+        return 1;
+    }
+    std::printf("Res(f, %s) = %s\n", CplxStr(z0).c_str(), CplxStr(r.value).c_str());
+    return 0;
+}
+
+int CmdComplexIntegral(const std::string& expr, Cplx c, double radius) {
+    ExprP e = MustParse(expr);
+    if (!e) return 1;
+    auto r = contourIntegral(e, "z", c, radius);
+    if (!r.ok) {
+        std::printf("积分失败: %s\n", r.error.c_str());
+        return 1;
+    }
+    std::printf("∮_{|z-%s|=%.6g} f dz = %s\n", CplxStr(c).c_str(), radius,
+                CplxStr(r.value).c_str());
+    return 0;
+}
+
+int CmdComplexZeros(const std::string& expr, Cplx c, double radius) {
+    ExprP e = MustParse(expr);
+    if (!e) return 1;
+    ComplexRegion region = ComplexRegion::disk(c, radius);
+    auto r = zeroCountIn(e, "z", region);
+    if (!r.ok) {
+        std::printf("零点计数失败: %s\n", r.error.c_str());
+        return 1;
+    }
+    std::printf("%s 内零点个数 = %d\n", region.str().c_str(), r.value);
+    auto h = isHolomorphicOn(e, "z", region);
+    std::printf("在 %s 上全纯: %s%s\n", region.str().c_str(), h.ok ? "是" : "否",
+                h.ok ? "" : (" —— " + h.reason).c_str());
+    return 0;
+}
+
 int CmdLimit(const std::string& expr, double x0) {
     ExprP e = MustParse(expr);
     if (!e) return 1;
@@ -255,6 +328,15 @@ int main(int argc, char** argv) {
         if (cmd == "domain" && argc >= 3) return CmdDomain(argv[2]);
         if (cmd == "diff" && argc >= 3) return CmdDiff(argv[2]);
         if (cmd == "limit" && argc >= 4) return CmdLimit(argv[2], atof(argv[3]));
+        // 复变
+        if (cmd == "cz" && argc >= 5)
+            return CmdComplexEval(argv[2], Cplx(atof(argv[3]), atof(argv[4])));
+        if (cmd == "cres" && argc >= 5)
+            return CmdComplexResidue(argv[2], Cplx(atof(argv[3]), atof(argv[4])));
+        if (cmd == "cint" && argc >= 6)
+            return CmdComplexIntegral(argv[2], Cplx(atof(argv[3]), atof(argv[4])), atof(argv[5]));
+        if (cmd == "czeros" && argc >= 6)
+            return CmdComplexZeros(argv[2], Cplx(atof(argv[3]), atof(argv[4])), atof(argv[5]));
     } catch (const std::exception& e) {
         std::printf("异常: %s\n", e.what());
         return 1;

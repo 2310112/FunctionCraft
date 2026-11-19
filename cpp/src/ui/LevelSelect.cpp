@@ -29,8 +29,8 @@ const ChapterInfo* ChapterOf(int chapter) {
         {2, "组合", "单调、值域、周期——把约束叠加起来"},
         {3, "进阶", "解析性、渐近线与开放约束"},
         {4, "大师", "多重约束下的极限构造"},
-        {5, "扩展", "更多函数库与开放题型"},
-        {6, "终章", "综合挑战"},
+        {5, "进入复平面", "变量 z 取复值，感受全纯与相位"},
+        {6, "留数与积分", "极点、留数与围道积分"},
     };
     for (const auto& c : chapters)
         if (c.id == chapter) return &c;
@@ -108,6 +108,10 @@ void DrawLevelItem(App& app, int index, float width) {
 
     LevelEntry& entry = app.levels[static_cast<size_t>(index)];
     if (hovered) app.hoveredLevel = index;
+    if (app.scrollToLevel && index == app.hoveredLevel) {
+        ImGui::SetScrollHereY(0.35f);
+        app.scrollToLevel = false;
+    }
 
     ImU32 bg = ToU32(hovered ? col::CardHi : col::Card);
     dl->AddRectFilled(p0, p1, bg, S(12.0f));
@@ -128,12 +132,21 @@ void DrawLevelItem(App& app, int index, float width) {
     std::string title = Ellipsize(entry.def.title, width - S(190.0f));
     dl->AddText(gFontBody, S(19.0f), ImVec2(p0.x + S(60.0f), p0.y + S(14.0f)), ToU32(col::Text),
                 title.c_str());
-    // 约束数量
+    // 约束数量（复数域关卡额外显示「复」徽章）
     char sub[64];
     std::snprintf(sub, sizeof(sub), "%d 条约束 · %s", static_cast<int>(entry.def.constraints.size()),
                   ChapterRoman(entry.def.chapter));
     dl->AddText(gFontBody, S(13.0f), ImVec2(p0.x + S(61.0f), p0.y + S(44.0f)), ToU32(col::TextFaint),
                 sub);
+    if (entry.def.isComplex()) {
+        float subW = gFontBody->CalcTextSizeA(S(13.0f), FLT_MAX, 0.0f, sub).x;
+        ImVec2 b0(p0.x + S(61.0f) + subW + S(10.0f), p0.y + S(43.0f));
+        ImVec2 b1(b0.x + S(22.0f), b0.y + S(18.0f));
+        dl->AddRectFilled(b0, b1, ToU32(Alpha(col::Purple, 0.18f)), S(5.0f));
+        dl->AddRect(b0, b1, ToU32(Alpha(col::Purple, 0.45f)), S(5.0f), 0, S(1.0f));
+        dl->AddText(gFontBody, S(11.0f), ImVec2(b0.x + S(5.0f), b0.y + S(2.0f)),
+                    ToU32(col::Purple), "复");
+    }
 
     // 评级
     if (entry.cleared && entry.bestGrade) {
@@ -207,9 +220,13 @@ void DrawDetailPanel(App& app, float width, float height) {
 
     // 元信息行
     {
-        char meta[160];
-        std::snprintf(meta, sizeof(meta), "%d 条约束 · 目标评级 B 级以上",
-                      static_cast<int>(def.constraints.size()));
+        char meta[192];
+        if (def.isComplex())
+            std::snprintf(meta, sizeof(meta), "复数域 · 变量 %s · %d 条约束 · 目标评级 B 级以上",
+                          def.primaryVar().c_str(), static_cast<int>(def.constraints.size()));
+        else
+            std::snprintf(meta, sizeof(meta), "%d 条约束 · 目标评级 B 级以上",
+                          static_cast<int>(def.constraints.size()));
         dl->AddText(gFontBody, S(13.0f), ImVec2(x, y), ToU32(col::TextFaint), meta);
         y += S(26.0f);
     }

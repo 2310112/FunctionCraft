@@ -55,6 +55,10 @@ const OpInfo kOpInfo[kOpCount] = {
     {"sign", "sign", 1, false, true},    // Sign
     {"min", "min", 2, false, true},      // Min
     {"max", "max", 2, false, true},      // Max
+    {"re", "Re", 1, false, true},        // Re
+    {"im", "Im", 1, false, true},        // Im
+    {"conj", "conj", 1, false, true},    // Conj
+    {"arg", "arg", 1, false, true},      // Arg
     {"pi", "pi", 0, true, false},        // Pi
     {"e", "e", 0, true, false},          // E
     {"i", "i", 0, true, false},          // I
@@ -191,6 +195,10 @@ std::string renderPtr(const Expr* e, int minPrec) {
             if (opArity(e->op) == 1) {
                 std::string inner = renderChild(e->a.get(), 0);
                 if (e->op == Op::Sqrt) return "√(" + inner + ")";
+                // Re/Im/arg 用首字母大写显示更易读
+                if (e->op == Op::Re) return "Re(" + inner + ")";
+                if (e->op == Op::Im) return "Im(" + inner + ")";
+                if (e->op == Op::Arg) return "arg(" + inner + ")";
                 return std::string(opName(e->op)) + "(" + inner + ")";
             }
             return std::string(opName(e->op));

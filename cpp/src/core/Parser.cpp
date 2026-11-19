@@ -210,6 +210,10 @@ const std::map<std::string, FuncEntry>& funcTable() {
         {"floor", {Op::Floor, 1}}, {"ceil", {Op::Ceil, 1}},   {"sign", {Op::Sign, 1}},
         {"sgn", {Op::Sign, 1}},    {"min", {Op::Min, 2}},     {"max", {Op::Max, 2}},
         {"mod", {Op::Mod, 2}},
+        // 复数域
+        {"re", {Op::Re, 1}},       {"real", {Op::Re, 1}},
+        {"im", {Op::Im, 1}},       {"imag", {Op::Im, 1}},
+        {"conj", {Op::Conj, 1}},   {"arg", {Op::Arg, 1}},
     };
     return table;
 }
@@ -352,9 +356,12 @@ private:
                 std::string name = tok_.text;
                 int pos = tok_.pos;
                 advance();
+                // 函数名大小写不敏感：Re(z) 与 re(z) 等价
+                std::string lname = name;
+                for (char& ch : lname) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
                 // 函数调用
                 const auto& tbl = funcTable();
-                auto it = tbl.find(name);
+                auto it = tbl.find(lname);
                 if (it != tbl.end()) {
                     if (tok_.type != Token::Type::LParen) {
                         setError(pos, "函数 " + name + " 后需要括号");
@@ -390,10 +397,10 @@ private:
                     return mkFunc1(it->second.op, a1);
                 }
                 // 常量
-                if (name == "pi") return mkPi();
-                if (name == "e") return mkE();
-                if (name == "i") return mkI();
-                if (name == "inf" || name == "Inf") return mkNum(INFINITY);
+                if (lname == "pi") return mkPi();
+                if (lname == "e") return mkE();
+                if (lname == "i") return mkI();
+                if (lname == "inf") return mkNum(INFINITY);
                 // 变量
                 return mkVar(name);
             }

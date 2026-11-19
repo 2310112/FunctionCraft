@@ -11,6 +11,7 @@
 #include "core/Expr.h"
 #include "core/Level.h"
 #include "core/Scoring.h"
+#include "D3DTexture.h"
 #include "imgui.h"
 
 namespace fcg {
@@ -68,6 +69,25 @@ struct App {
     std::vector<ConstraintReport> reports;
     bool correct = false;
     double submitElapsed = 0.0;
+
+    // ---------------- 复平面着色图（复数域关卡） ----------------
+    DynTexture complexTex;                 // 复平面着色纹理
+    std::vector<unsigned char> complexPixels;  // RGBA8 像素缓冲
+    int complexPixW = 0, complexPixH = 0;      // 当前像素分辨率
+    bool complexDirty = true;              // 需要重算（去抖中）
+    bool complexComputing = false;         // 正在分帧计算
+    bool complexValid = false;             // 纹理中已有有效图像
+    int complexRow = 0;                    // 已计算到的行
+    double complexDirtyAt = 0.0;           // 脏标记时间戳（去抖）
+    double complexComputeMs = 0.0;         // 上次计算总耗时（毫秒）
+    int complexPixelCount = 0;             // 上次计算的像素数
+    ImVec2 complexCenter = ImVec2(0.0f, 0.0f);  // 视口中心（Re, Im）
+    float complexSpanRe = 5.0f;            // 视口横向跨度（Re 方向）
+    bool complexViewInitialized = false;   // 视角是否已初始化
+    ExprP complexAst;                      // 计算用的 AST 快照
+    std::string complexExprUsed;           // 计算用的表达式
+    bool shotMode = false;                 // 离屏截图模式（计算预算放宽，便于验收）
+    bool scrollToLevel = false;            // 关卡列表：下一帧滚动到 hoveredLevel
 
     // ---------------- 提示 ----------------
     bool hintOpen = false;        // 提示气泡（关卡 hint）
@@ -136,6 +156,14 @@ struct App {
     void toastMsg(bool error, const std::string& msg);
     void applyShotConfig();  // 处理 --scene/--level/--expr
     void regenerateEndlessLevel();
+
+    // ---------------- 复数域 ----------------
+    bool isComplexLevel() const { return level.isComplex(); }
+    void resetComplexView();          // 复位视角（中心 0，跨度 5）
+    void markComplexDirty();          // 标记需要重算（去抖开始）
+    void dropComplexImage();          // 丢弃当前纹理图（表达式非法等）
+    // 每帧由复平面绘图卡调用：处理去抖/分帧计算/纹理上传；返回是否就绪
+    void updateComplexPlot(int pixW, int pixH);
 };
 
 extern App* gActiveApp;
@@ -147,7 +175,8 @@ void DrawMenu(App& app);
 void DrawLevelSelect(App& app);
 void DrawGame(App& app);
 void DrawResultOverlay(App& app);
-void DrawPlotCard(App& app, const ImVec2& size);   // 右侧函数图像卡片
+void DrawPlotCard(App& app, const ImVec2& size);   // 右侧函数图像卡片（实数域）
+void DrawComplexPlotCard(App& app, const ImVec2& size);  // 右侧复平面着色图（复数域）
 void DrawHintModal(App& app);                      // 提示弹窗（关卡提示）
 void DrawResetConfirm(App& app);                   // 重置进度确认框
 bool UiIsCompact();                                // 当前是否处于小窗口紧凑布局

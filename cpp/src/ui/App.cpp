@@ -2,6 +2,7 @@
 #include "App.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -14,6 +15,7 @@
 
 #include "core/EndlessGen.h"
 #include "core/Json.h"
+#include "core/Numeric.h"
 #include "core/Level.h"
 #include "LevelUi.h"
 #include "core/Parser.h"
@@ -49,6 +51,12 @@ void App::init() {
     // 输入完全由本模块接管（避免 ImGui 键盘导航抢走回车/方向键）
     ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
 
+    // 离屏截图模式：复平面着色图允许更大的单帧计算预算，避免截图停在计算中
+    {
+        const char* cmd = ::GetCommandLineA();
+        shotMode = cmd && std::strstr(cmd, "--shot=") != nullptr;
+    }
+
 
     loadGameData();
     loadProgress();
@@ -68,6 +76,7 @@ void App::init() {
 
 void App::shutdown() {
     saveProgress();
+    TextureDestroy(complexTex);
     if (gActiveApp == this) gActiveApp = nullptr;
 }
 
@@ -248,6 +257,7 @@ void App::openLevel(int index) {
     mode = Mode::Level;
     level = levels[index].def;
     levelStart = ImGui::GetTime();
+    resetComplexView();
     screen = Screen::Game;
     hasResult = false;
     hintOpen = false;
@@ -275,6 +285,7 @@ void App::openEndlessLevel(int index) {
     mode = Mode::Endless;
     regenerateEndlessLevel();
     levelStart = ImGui::GetTime();
+    resetComplexView();
     screen = Screen::Game;
     hasResult = false;
     hintOpen = false;
@@ -325,6 +336,7 @@ void App::setExpr(const std::string& s) {
     expr = s;
     cursor = static_cast<int>(expr.size());
     refreshValidation();
+    if (isComplexLevel()) markComplexDirty();
 }
 
 void App::refreshValidation() {
@@ -570,6 +582,172 @@ void App::forceTimeout() {
 }
 
 // ---------------------------------------------------------------
+// 复平面着色图（domain coloring）
+// ---------------------------------------------------------------
+namespace {
+
+inline void HsvToRgb(float h, float s, float v, float* r, float* g, float* b) {
+    h = h - std::floor(h);
+    float hh = h * 6.0f;
+    int i = static_cast<int>(hh) % 6;
+    float f = hh - std::floor(hh);
+    float p = v * (1.0f - s);
+    float q = v * (1.0f - s * f);
+    float t = v * (1.0f - s * (1.0f - f));
+    switch (i) {
+        case 0: *r = v; *g = t; *b = p; break;
+        case 1: *r = q; *g = v; *b = p; break;
+        case 2: *r = p; *g = v; *b = t; break;
+        case 3: *r = p; *g = q; *b = v; break;
+        case 4: *r = t; *g = p; *b = v; break;
+        default: *r = v; *g = p; *b = q; break;
+    }
+}
+
+// |f(z)| 的对数压缩明度 + 相位带 + 等模线
+void ComplexColorAt(const ExprP& ast, const std::string& varName, VarMap& vars, double re,
+                    double im, unsigned char out[4]) {
+    vars[varName] = Cplx(re, im);
+    EvalResult r = evaluate(ast, vars);
+    if (!r.ok || !r.value.isFinite() || std::isnan(r.value.re) || std::isnan(r.value.im)) {
+        out[0] = 34; out[1] = 34; out[2] = 38; out[3] = 255;
+        return;
+    }
+    const Cplx w = r.value;
+    const double m = w.abs();
+    if (std::isnan(m) || std::isinf(m)) {
+        out[0] = 34; out[1] = 34; out[2] = 38; out[3] = 255;
+        return;
+    }
+    const double TWO_PI = 6.28318530717958647692;
+    double arg = std::atan2(w.im, w.re);
+    if (arg < 0.0) arg += TWO_PI;
+
+    // 色相 = 辐角
+    float hue = static_cast<float>(arg / TWO_PI);
+
+    // 明度 = log(1+|f|) 的单调压缩（再做 gamma 提亮，让 |f|<1 的区域也有层次）
+    double logv = std::log(1.0 + m);
+    float L = static_cast<float>(logv / (1.0 + logv));
+    L = std::pow(L, 0.55f);
+
+    // 相位带（12 条明暗分界）
+    const float kPhaseBands = 12.0f;
+    float ph = hue * kPhaseBands;
+    float phaseFrac = ph - std::floor(ph);
+    if (phaseFrac < 0.05f) L *= 0.52f;
+
+    // 等模线（|f| = 2^k 处变暗）
+    double modT = logv / 0.6931471805599453;  // ln2
+    float modFrac = static_cast<float>(modT - std::floor(modT));
+    if (modFrac < 0.08f) L *= 0.58f;
+
+    float v = 0.10f + 0.90f * L;
+    if (v > 0.985f) v = 0.985f;
+    float sat = 0.66f + 0.16f * (1.0f - L);  // 低模处稍亮/偏灰
+    float cr, cg, cb;
+    HsvToRgb(hue, sat, v, &cr, &cg, &cb);
+    out[0] = static_cast<unsigned char>(cr * 255.0f + 0.5f);
+    out[1] = static_cast<unsigned char>(cg * 255.0f + 0.5f);
+    out[2] = static_cast<unsigned char>(cb * 255.0f + 0.5f);
+    out[3] = 255;
+}
+
+}  // namespace
+
+void App::resetComplexView() {
+    complexCenter = ImVec2(0.0f, 0.0f);
+    complexSpanRe = 5.0f;
+    complexViewInitialized = false;
+    dropComplexImage();
+}
+
+void App::markComplexDirty() {
+    complexDirty = true;
+    complexDirtyAt = ImGui::GetTime();
+    complexComputing = false;
+}
+
+void App::dropComplexImage() {
+    complexDirty = false;
+    complexComputing = false;
+    complexValid = false;
+    complexRow = 0;
+    complexAst = nullptr;
+    complexExprUsed.clear();
+}
+
+void App::updateComplexPlot(int pixW, int pixH) {
+    if (!isComplexLevel()) return;
+    pixW = Clamp(pixW, 160, 480);
+    pixH = Clamp(pixH, 120, 480);
+    if (!exprValid || !ast) {
+        dropComplexImage();
+        return;
+    }
+    if (complexPixW != pixW || complexPixH != pixH) {
+        complexPixW = pixW;
+        complexPixH = pixH;
+        markComplexDirty();
+    }
+    if (!complexViewInitialized) {
+        complexViewInitialized = true;
+        markComplexDirty();
+    }
+
+    // 去抖 250ms：表达式/视角变化后延迟重算（截图模式放宽，保证一次截图内算完）
+    const double debounce = shotMode ? 0.02 : 0.25;
+    if (!complexComputing) {
+        if (!complexDirty) return;
+        if (now - complexDirtyAt < debounce) return;
+        // 开始新一轮计算
+        complexPixels.assign(static_cast<size_t>(complexPixW) * complexPixH * 4, 0);
+        complexRow = 0;
+        complexComputing = true;
+        complexComputeMs = 0.0;
+        complexPixelCount = complexPixW * complexPixH;
+        complexAst = ast;
+        complexExprUsed = expr;
+    }
+
+    // 分帧计算：每帧约 4ms，避免卡主线程
+    const auto t0 = std::chrono::steady_clock::now();
+    const double budgetMs = shotMode ? 40.0 : 4.0;
+    VarMap vars;
+    const double spanIm = static_cast<double>(complexSpanRe) * complexPixH / complexPixW;
+    const double cx = complexCenter.x;
+    const double cy = complexCenter.y;
+    const std::string varName = level.primaryVar().empty() ? std::string("z") : level.primaryVar();
+
+    while (complexRow < complexPixH) {
+        const int y = complexRow;
+        const double im = cy - ((y + 0.5) / complexPixH - 0.5) * spanIm;
+        unsigned char* row = complexPixels.data() + static_cast<size_t>(y) * complexPixW * 4;
+        for (int x = 0; x < complexPixW; ++x) {
+            const double re = cx + ((x + 0.5) / complexPixW - 0.5) * complexSpanRe;
+            ComplexColorAt(complexAst, varName, vars, re, im, row + static_cast<size_t>(x) * 4);
+        }
+        ++complexRow;
+        const auto el = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t0);
+        if (el.count() >= budgetMs && complexRow < complexPixH) break;
+    }
+    complexComputeMs += std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+
+    if (complexRow >= complexPixH) {
+        complexComputing = false;
+        complexDirty = false;
+        if (TextureEnsure(complexTex, complexPixW, complexPixH)) {
+            complexValid = TextureUpdate(complexTex, complexPixels.data());
+        } else {
+            complexValid = false;
+        }
+    }
+}
+
+// ---------------------------------------------------------------
 // 辅助
 // ---------------------------------------------------------------
 double App::elapsed() const {
@@ -618,6 +796,28 @@ void App::applyShotConfig() {
         mode = Mode::Level;
         endless = false;
         screen = Screen::LevelSelect;
+        // 截图自检：关卡数据里还没有复数关卡时，临时注入内置复数试炼关卡，
+        // 以便检查第 5/6 章分组与「复」徽章（只在截图模式下生效）。
+        bool hasComplex = false;
+        for (const auto& e : levels)
+            if (e.def.isComplex()) hasComplex = true;
+        if (shotMode && !hasComplex) {
+            const char* ids[] = {"5-1", "5-2", "6-1"};
+            for (const char* id : ids) {
+                LevelEntry e;
+                e.def = MakeComplexTestLevel(id);
+                levels.push_back(e);
+            }
+        }
+        if (!sc.levelId.empty()) {
+            for (size_t i = 0; i < levels.size(); ++i) {
+                if (levels[i].def.id == sc.levelId) {
+                    hoveredLevel = static_cast<int>(i);
+                    scrollToLevel = true;
+                    break;
+                }
+            }
+        }
         return;
     }
     if (sc.scene == "endless") {
@@ -634,8 +834,8 @@ void App::applyShotConfig() {
     }
     if (sc.scene == "play" || sc.scene == "result") {
         int idx = 0;
+        bool found = false;
         if (!sc.levelId.empty()) {
-            bool found = false;
             for (size_t i = 0; i < levels.size(); ++i) {
                 if (levels[i].def.id == sc.levelId) {
                     idx = static_cast<int>(i);
@@ -651,6 +851,35 @@ void App::applyShotConfig() {
                     idx = 0;
                 }
             }
+        }
+        // 关卡数据里的 5-x / 6-x（复数域）可能尚未就绪：临时使用内置复数试炼关卡
+        const bool looksComplex = !found && !sc.levelId.empty() &&
+                                  (sc.levelId.rfind("5-", 0) == 0 ||
+                                   sc.levelId.rfind("6-", 0) == 0 ||
+                                   sc.levelId.rfind("complex", 0) == 0 ||
+                                   sc.levelId == "c-test");
+        if (looksComplex) {
+            level = MakeComplexTestLevel(sc.levelId);
+            endless = false;
+            mode = Mode::Level;
+            levelIndex = 0;
+            screen = Screen::Game;
+            hasResult = false;
+            hintOpen = false;
+            referenceOpen = false;
+            timeUp = false;
+            resetComplexView();
+            std::string text = sc.expression;
+            if (text.empty()) text = level.reference.empty() ? std::string("1/(z-1)") : level.reference;
+            setExpr(text);
+            if (sc.scene == "play") {
+                levelStart = ImGui::GetTime() - 23.0;
+            } else {
+                levelStart = ImGui::GetTime() - 42.0;
+                submitElapsed = 42.0;
+                submit();
+            }
+            return;
         }
         if (!levels.empty()) {
             openLevel(idx);

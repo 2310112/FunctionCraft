@@ -275,6 +275,13 @@ bool evalRec(const ExprP& e, Ctx& c, Cplx& out) {
                     if (a.im != 0.0) return fail(c, "sign 只支持实数");
                     out = Cplx(a.re > 0 ? 1.0 : (a.re < 0 ? -1.0 : 0.0));
                     break;
+                case Op::Re: out = Cplx(a.re, 0.0); break;
+                case Op::Im: out = Cplx(a.im, 0.0); break;
+                case Op::Conj: out = a.conj(); break;
+                case Op::Arg:
+                    if (a.re == 0.0 && a.im == 0.0) return fail(c, "arg(0) 无定义");
+                    out = Cplx(a.arg(), 0.0);
+                    break;
                 default:
                     return fail(c, std::string("未实现的运算 ") + opName(e->op));
             }

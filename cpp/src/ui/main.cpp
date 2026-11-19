@@ -14,6 +14,7 @@
 #include "App.h"
 #include "ShotConfig.h"
 #include "Theme.h"
+#include "D3DTexture.h"
 #include "UiScale.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -21,6 +22,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -186,6 +188,77 @@ static void LoadChineseFont(ImGuiIO& io) {
     }
     io.Fonts->AddFontDefault();
 }
+
+// ---------------------------------------------------------------
+// 动态纹理（复平面着色图用）
+// ---------------------------------------------------------------
+namespace fcg {
+namespace ui {
+
+void TextureDestroy(DynTexture& t) {
+    if (t.srv) {
+        static_cast<ID3D11ShaderResourceView*>(t.srv)->Release();
+        t.srv = nullptr;
+    }
+    if (t.tex) {
+        static_cast<ID3D11Texture2D*>(t.tex)->Release();
+        t.tex = nullptr;
+    }
+    t.w = t.h = 0;
+}
+
+bool TextureEnsure(DynTexture& t, int w, int h) {
+    if (!g_pd3dDevice) return false;
+    if (w <= 0 || h <= 0) return false;
+    if (t.tex && t.w == w && t.h == h) return true;
+    TextureDestroy(t);
+
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = static_cast<UINT>(w);
+    desc.Height = static_cast<UINT>(h);
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DYNAMIC;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    ID3D11Texture2D* tex = nullptr;
+    if (FAILED(g_pd3dDevice->CreateTexture2D(&desc, nullptr, &tex)) || !tex) return false;
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = desc.Format;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+    ID3D11ShaderResourceView* srv = nullptr;
+    if (FAILED(g_pd3dDevice->CreateShaderResourceView(tex, &srvDesc, &srv)) || !srv) {
+        tex->Release();
+        return false;
+    }
+    t.tex = tex;
+    t.srv = srv;
+    t.w = w;
+    t.h = h;
+    return true;
+}
+
+bool TextureUpdate(DynTexture& t, const unsigned char* rgba) {
+    if (!t.tex || !rgba) return false;
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(g_pd3dDeviceContext->Map(static_cast<ID3D11Texture2D*>(t.tex), 0,
+                                        D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        return false;
+    for (int y = 0; y < t.h; ++y) {
+        std::memcpy(static_cast<unsigned char*>(mapped.pData) + static_cast<size_t>(y) * mapped.RowPitch,
+                    rgba + static_cast<size_t>(y) * t.w * 4, static_cast<size_t>(t.w) * 4);
+    }
+    g_pd3dDeviceContext->Unmap(static_cast<ID3D11Texture2D*>(t.tex), 0);
+    return true;
+}
+
+}  // namespace ui
+}  // namespace fcg
 
 // ---------------------------------------------------------------
 // DPI 变化：重建字体图集

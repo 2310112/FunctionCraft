@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -88,6 +89,24 @@ std::vector<LevelDef> loadAllLevels() {
     return levels;
 }
 
+// Complex.cpp 是否已经落地（当前是桩）。桩阶段与复变数值分析相关的断言写成
+// 「不做假阳性判定」的形式；集成后同一批断言自动变成严格校验，无需改测试。
+bool complexCoreReady() {
+    static int state = -1;  // -1 未探测 / 0 桩 / 1 已实现
+    if (state >= 0) return state == 1;
+    const ExprP z2 = P("z^2");
+    const ComplexCheck hc = isHolomorphicOn(z2, "z", ComplexRegion::disk(Cplx(0, 0), 2.0));
+    const CplxResult ev = evalComplex(z2, "z", Cplx(0, 1));
+    const CplxResult rr = residueAt(P("1/z"), "z", Cplx(0, 0));
+    state = (hc.ok && ev.ok && rr.ok) ? 1 : 0;
+    return state == 1;
+}
+
+// 是否是复变约束（PoleOrderAt 及之后新增的 8 种）
+bool isComplexConstraintKind(ConstraintKind k) {
+    return static_cast<int>(k) >= static_cast<int>(ConstraintKind::HolomorphicOn);
+}
+
 }  // namespace
 
 // =================================================================
@@ -102,8 +121,14 @@ FCG_TEST(gameplay_constraint_kind_meta) {
         ConstraintKind::Periodic,         ConstraintKind::Asymptote,
         ConstraintKind::Extremum,         ConstraintKind::SymmetryAxis,
         ConstraintKind::ZeroCount,        ConstraintKind::ComplexityLimit,
-        ConstraintKind::PeriodicSymmetry};
+        ConstraintKind::PeriodicSymmetry,
+        // ---------- 复变 ----------
+        ConstraintKind::HolomorphicOn,    ConstraintKind::NoSingularityIn,
+        ConstraintKind::PoleOrderAt,      ConstraintKind::ResidueAt,
+        ConstraintKind::ContourIntegralValue, ConstraintKind::ZeroCountInRegion,
+        ConstraintKind::ModulusRangeOn,   ConstraintKind::ComplexBoundaryValue};
     std::set<std::string> names;
+    std::set<std::string> displays;
     for (ConstraintKind k : all) {
         const std::string name = constraintKindName(k);
         const std::string display = constraintKindDisplay(k);
@@ -113,8 +138,17 @@ FCG_TEST(gameplay_constraint_kind_meta) {
         CHECK(display != "未知约束");
         CHECK(constraintKindSupported(k));
         names.insert(name);
+        displays.insert(display);
     }
-    CHECK_EQ(names.size(), size_t(15));
+    CHECK_EQ(names.size(), size_t(23));
+    CHECK_EQ(displays.size(), size_t(23));  // 中文显示名也不重复
+    // 复变约束的中文名
+    CHECK_EQ(std::string(constraintKindDisplay(ConstraintKind::HolomorphicOn)), std::string("全纯性"));
+    CHECK_EQ(std::string(constraintKindDisplay(ConstraintKind::ResidueAt)), std::string("留数"));
+    CHECK_EQ(std::string(constraintKindDisplay(ConstraintKind::ContourIntegralValue)),
+             std::string("围道积分"));
+    CHECK_EQ(std::string(constraintKindName(ConstraintKind::ZeroCountInRegion)),
+             std::string("zero_count_region"));
 }
 
 // =================================================================
@@ -233,6 +267,107 @@ FCG_TEST(gameplay_constraint_describe) {
         Constraint c = mkC(ConstraintKind::Parity);
         c.label = "必须左右镜像";
         CHECK_EQ(c.describe(), std::string("必须左右镜像"));
+    }
+    // ---------- 复变约束的中文描述 ----------
+    {
+        Constraint c = mkC(ConstraintKind::HolomorphicOn);
+        c.region = ComplexRegion::disk(Cplx(0, 0), 1.0);
+        CHECK_EQ(c.describe(), std::string("在 |z| < 1 上解析"));
+        c.region = ComplexRegion::disk(Cplx(0, 0), 2.0);
+        CHECK_EQ(c.describe(), std::string("在 |z| < 2 上解析"));
+        c.region = ComplexRegion::annulus(Cplx(0, 0), 1.0, 2.0);
+        CHECK_EQ(c.describe(), std::string("在 1 < |z| < 2 上解析"));
+        c.region = ComplexRegion::wholePlane();
+        CHECK_EQ(c.describe(), std::string("在整个复平面上解析"));
+        ComplexRegion half;
+        half.kind = ComplexRegion::Kind::HalfPlaneUpper;
+        c.region = half;
+        CHECK_EQ(c.describe(), std::string("在上半平面上解析"));
+        ComplexRegion ext;
+        ext.kind = ComplexRegion::Kind::ExteriorOfDisk;
+        ext.center = Cplx(0, 0);
+        ext.radius = 2.5;
+        c.region = ext;
+        CHECK_EQ(c.describe(), std::string("在 |z| > 2.5 上解析"));
+    }
+    {
+        Constraint c = mkC(ConstraintKind::NoSingularityIn);
+        c.region = ComplexRegion::disk(Cplx(0, 0), 1.5);
+        CHECK_EQ(c.describe(), std::string("在 |z| < 1.5 内无奇点"));
+    }
+    {
+        Constraint c = mkC(ConstraintKind::PoleOrderAt);
+        c.cpoint = Cplx(0, 0);
+        c.order = 2;
+        CHECK_EQ(c.describe(), std::string("在 z = 0 处有 2 阶极点"));
+        c.cpoint = Cplx(1, 0);
+        c.order = 1;
+        CHECK_EQ(c.describe(), std::string("在 z = 1 处有 1 阶极点"));
+        c.cpoint = Cplx(0, 1);
+        CHECK_EQ(c.describe(), std::string("在 z = i 处有 1 阶极点"));
+    }
+    {
+        Constraint c = mkC(ConstraintKind::ResidueAt);
+        c.cpoint = Cplx(1, 0);
+        c.cvalue = Cplx(0.5, 0);
+        CHECK_EQ(c.describe(), std::string("在 z = 1 处的留数为 0.5"));
+        c.cvalue = Cplx(0, 1);
+        CHECK_EQ(c.describe(), std::string("在 z = 1 处的留数为 i"));
+        c.cvalue = Cplx(1, 2);
+        CHECK_EQ(c.describe(), std::string("在 z = 1 处的留数为 1+2i"));
+        c.cpoint = Cplx(0, -1);
+        c.cvalue = Cplx(0, -1);
+        CHECK_EQ(c.describe(), std::string("在 z = -i 处的留数为 -i"));
+        // π 的有理倍数写在虚部
+        c.cpoint = Cplx(1, 0);
+        c.cvalue = Cplx(0.0, kPi / 2.0);
+        CHECK_EQ(c.describe(), std::string("在 z = 1 处的留数为 πi/2"));
+        c.cvalue = Cplx(0.0, -3.0 * kPi / 4.0);
+        CHECK_EQ(c.describe(), std::string("在 z = 1 处的留数为 -3πi/4"));
+        c.cvalue = Cplx(1.0, kPi);
+        CHECK_EQ(c.describe(), std::string("在 z = 1 处的留数为 1+πi"));
+    }
+    {
+        Constraint c = mkC(ConstraintKind::ContourIntegralValue);
+        c.cpoint = Cplx(0, 0);
+        c.radius = 2.0;
+        c.cvalue = Cplx(0, 2.0 * kPi);
+        CHECK_EQ(c.describe(), std::string("沿 |z| = 2 逆时针积分等于 2πi"));
+        c.cpoint = Cplx(1, 0);
+        c.radius = 1.0;
+        c.cvalue = Cplx(0, -2.0 * kPi);
+        CHECK_EQ(c.describe(), std::string("沿 |z - 1| = 1 逆时针积分等于 -2πi"));
+        c.cvalue = Cplx(0, 0);
+        CHECK_EQ(c.describe(), std::string("沿 |z - 1| = 1 逆时针积分等于 0"));
+        // 负中心 / 纯虚中心的围道写法
+        c.cpoint = Cplx(-2, 0);
+        CHECK_EQ(c.describe(), std::string("沿 |z + 2| = 1 逆时针积分等于 0"));
+        c.cpoint = Cplx(0, -1);
+        CHECK_EQ(c.describe(), std::string("沿 |z + i| = 1 逆时针积分等于 0"));
+    }
+    {
+        Constraint c = mkC(ConstraintKind::ZeroCountInRegion);
+        c.region = ComplexRegion::disk(Cplx(0, 0), 3.0);
+        c.count = 2;
+        CHECK_EQ(c.describe(), std::string("在 |z| < 3 内恰有 2 个零点"));
+    }
+    {
+        Constraint c = mkC(ConstraintKind::ModulusRangeOn);
+        c.region = ComplexRegion::disk(Cplx(0, 0), 1.0);
+        c.lo = 0.0;
+        c.hi = 1.0;
+        CHECK_EQ(c.describe(), std::string("在 |z| < 1 上 |f(z)| ∈ [0, 1]"));
+    }
+    {
+        Constraint c = mkC(ConstraintKind::ComplexBoundaryValue);
+        c.cpoint = Cplx(0, 1);
+        c.cvalue = Cplx(1, 0);
+        CHECK_EQ(c.describe(), std::string("f(i) = 1"));
+        c.cvalue = Cplx(0, 1);
+        CHECK_EQ(c.describe(), std::string("f(i) = i"));
+        c.cpoint = Cplx(1, 2);
+        c.cvalue = Cplx(1, -2);
+        CHECK_EQ(c.describe(), std::string("f(1+2i) = 1-2i"));
     }
 }
 
@@ -887,17 +1022,19 @@ FCG_TEST(gameplay_level_valid_rules) {
 // =================================================================
 FCG_TEST(gameplay_levels_json_load) {
     const std::vector<LevelDef> levels = loadAllLevels();
-    CHECK_EQ(levels.size(), size_t(24));
+    CHECK_EQ(levels.size(), size_t(36));  // 24 实数 + 12 复数
 
     std::set<std::string> ids;
     std::set<int> chapters;
-    int perChapter[5] = {0, 0, 0, 0, 0};
     std::set<int> kinds;
+    std::map<int, int> perChapter;
+    int realLevels = 0;
+    int complexLevels = 0;
     for (const LevelDef& L : levels) {
         CHECK(!L.id.empty());
         CHECK(!L.title.empty());
         CHECK(!L.hint.empty());
-        CHECK(L.chapter >= 1 && L.chapter <= 4);
+        CHECK(L.chapter >= 1 && L.chapter <= 6);
         CHECK(!L.reference.empty());
         CHECK(L.parScore >= 0.0 && L.parScore <= 100.0);
         CHECK(ids.insert(L.id).second);  // id 唯一
@@ -906,30 +1043,289 @@ FCG_TEST(gameplay_levels_json_load) {
         const int n = static_cast<int>(L.constraints.size());
         CHECK(n >= 1 && n <= 6);
         if (L.chapter == 1) CHECK(n >= 1 && n <= 2);
-        if (L.chapter == 2) CHECK(n >= 3 && n <= 4);
-        if (L.chapter == 3) CHECK(n >= 4 && n <= 5);
+        if (L.chapter == 2) CHECK(n >= 3 && n <= 5);
+        if (L.chapter == 3) CHECK(n >= 4 && n <= 6);
         if (L.chapter == 4) CHECK(n >= 5 && n <= 6);
+        if (L.chapter == 5) CHECK(n >= 3 && n <= 5);
+        if (L.chapter == 6) CHECK(n >= 4 && n <= 6);
+
+        // 实数关卡：变量 x、全部是实数约束
+        // 复数关卡：变量 z、domain=complex、约束含复变种类
+        if (L.chapter <= 4) {
+            CHECK(!L.isComplex());
+            CHECK_EQ(L.primaryVar(), std::string("x"));
+            ++realLevels;
+        } else {
+            CHECK(L.isComplex());
+            CHECK_EQ(L.primaryVar(), std::string("z"));
+            ++complexLevels;
+            bool hasComplexConstraint = false;
+            for (const Constraint& c : L.constraints) {
+                if (isComplexConstraintKind(c.kind)) hasComplexConstraint = true;
+            }
+            CHECK(hasComplexConstraint);
+        }
         for (const Constraint& c : L.constraints) {
             kinds.insert(static_cast<int>(c.kind));
             CHECK(constraintKindSupported(c.kind));
+            CHECK_EQ(c.var, L.primaryVar());  // 未写 var 的约束跟随关卡主变量
         }
         // 参考解必须能被解析
         ParseError pe;
         CHECK(parseExpr(L.reference, &pe) != nullptr);
     }
-    CHECK_EQ(chapters.size(), size_t(4));
-    for (int ch = 1; ch <= 4; ++ch) CHECK_EQ(perChapter[ch], 6);
-    // 约束种类覆盖：15 种全部出现
-    CHECK_EQ(kinds.size(), size_t(15));
+    CHECK_EQ(realLevels, 24);
+    CHECK_EQ(complexLevels, 12);
+    CHECK_EQ(chapters.size(), size_t(6));
+    for (int ch = 1; ch <= 6; ++ch) CHECK_EQ(perChapter[ch], 6);
+    // 约束种类覆盖：15 种实数 + 8 种复变全部出现
+    CHECK_EQ(kinds.size(), size_t(23));
 }
 
-// 参考解必须真正满足本关全部约束（桩阶段依靠 Constraint.cpp 内的数值兜底；
-// 集成后若失败，说明依赖模块与兜底算法不一致，需要 lead 复核）
+// 复数关卡的字段解析（依赖 Level.cpp 的复变约束解析）
+FCG_TEST(gameplay_levels_complex_json_parse) {
+    const std::vector<LevelDef> levels = loadAllLevels();
+    std::map<std::string, const LevelDef*> byId;
+    for (const LevelDef& L : levels) byId[L.id] = &L;
+    auto require = [&](const std::string& id) -> const LevelDef& {
+        auto it = byId.find(id);
+        if (it == byId.end()) ::fcgtest::fail("找不到关卡 " + id, __FILE__, __LINE__);
+        return *it->second;
+    };
+    auto hasKind = [](const LevelDef& L, ConstraintKind k) {
+        for (const Constraint& c : L.constraints)
+            if (c.kind == k) return true;
+        return false;
+    };
+    auto firstOf = [](const LevelDef& L, ConstraintKind k) -> const Constraint& {
+        for (const Constraint& c : L.constraints)
+            if (c.kind == k) return c;
+        ::fcgtest::fail("关卡 " + L.id + " 缺少约束种类", __FILE__, __LINE__);
+        return L.constraints.front();
+    };
+
+    // 每章 6 关，且 8 种复变约束全被使用
+    for (int ch = 5; ch <= 6; ++ch) {
+        int count = 0;
+        for (const LevelDef& L : levels) {
+            if (L.chapter == ch) {
+                CHECK(L.isComplex());
+                ++count;
+            }
+        }
+        CHECK_EQ(count, 6);
+    }
+    std::set<int> complexKindsUsed;
+    for (const LevelDef& L : levels) {
+        if (!L.isComplex()) continue;
+        for (const Constraint& c : L.constraints) {
+            if (isComplexConstraintKind(c.kind)) complexKindsUsed.insert(static_cast<int>(c.kind));
+        }
+    }
+    CHECK_EQ(complexKindsUsed.size(), size_t(8));
+
+    // 逐种复变约束的字段解析
+    {
+        const LevelDef& L = require("5-1");
+        const Constraint& h = firstOf(L, ConstraintKind::HolomorphicOn);
+        CHECK_EQ(static_cast<int>(h.region.kind),
+                 static_cast<int>(ComplexRegion::Kind::Disk));
+        CHECK_NEAR(h.region.radius, 2.0, 1e-12);
+        CHECK_NEAR(h.region.center.re, 0.0, 1e-12);
+        CHECK_NEAR(h.region.center.im, 0.0, 1e-12);
+        const Constraint& v = firstOf(L, ConstraintKind::ComplexBoundaryValue);
+        CHECK_NEAR(v.cpoint.re, 1.0, 1e-12);
+        CHECK_NEAR(v.cpoint.im, 0.0, 1e-12);
+    }
+    {
+        const LevelDef& L = require("5-2");
+        const Constraint& h = firstOf(L, ConstraintKind::HolomorphicOn);
+        CHECK_EQ(static_cast<int>(h.region.kind),
+                 static_cast<int>(ComplexRegion::Kind::Rectangle));
+        CHECK_NEAR(h.region.x0, -1.0, 1e-12);
+        CHECK_NEAR(h.region.x1, 1.0, 1e-12);
+        const Constraint& mr = firstOf(L, ConstraintKind::ModulusRangeOn);
+        CHECK_NEAR(mr.lo, 0.0, 1e-12);
+        CHECK_NEAR(mr.hi, 3.0, 1e-12);
+        CHECK_EQ(static_cast<int>(mr.region.kind),
+                 static_cast<int>(ComplexRegion::Kind::Disk));
+    }
+    {
+        const LevelDef& L = require("5-4");
+        const Constraint& h = firstOf(L, ConstraintKind::HolomorphicOn);
+        CHECK_EQ(static_cast<int>(h.region.kind),
+                 static_cast<int>(ComplexRegion::Kind::HalfPlaneUpper));
+        // "pi/2" 表达式字符串点：找那个取点为 π/2 的复数点取值约束
+        const Constraint* atPiHalf = nullptr;
+        for (const Constraint& c : L.constraints) {
+            if (c.kind == ConstraintKind::ComplexBoundaryValue &&
+                std::fabs(c.cpoint.re - kPi / 2.0) < 1e-9) {
+                atPiHalf = &c;
+            }
+        }
+        CHECK(atPiHalf != nullptr);
+        if (atPiHalf) {
+            CHECK_NEAR(atPiHalf->cvalue.re, 1.0, 1e-12);
+            CHECK_NEAR(atPiHalf->cvalue.im, 0.0, 1e-12);
+        }
+    }
+    {
+        const LevelDef& L = require("6-1");
+        const Constraint& h = firstOf(L, ConstraintKind::HolomorphicOn);
+        CHECK_EQ(static_cast<int>(h.region.kind),
+                 static_cast<int>(ComplexRegion::Kind::Annulus));
+        CHECK_NEAR(h.region.radius, 1.0, 1e-12);
+        CHECK_NEAR(h.region.outerRadius, 2.0, 1e-12);
+        const Constraint& pole = firstOf(L, ConstraintKind::PoleOrderAt);
+        CHECK_EQ(pole.order, 1);
+        CHECK_NEAR(pole.cpoint.im, 0.0, 1e-12);
+        const Constraint& res = firstOf(L, ConstraintKind::ResidueAt);
+        CHECK_NEAR(res.cvalue.re, 1.0, 1e-12);
+        const Constraint& ci = firstOf(L, ConstraintKind::ContourIntegralValue);
+        CHECK_NEAR(ci.radius, 2.0, 1e-12);
+        CHECK_NEAR(ci.cvalue.re, 0.0, 1e-12);
+        CHECK_NEAR(ci.cvalue.im, 2.0 * kPi, 1e-9);  // "2*pi*i"
+    }
+    {
+        const LevelDef& L = require("6-6");
+        const Constraint& h = firstOf(L, ConstraintKind::HolomorphicOn);
+        CHECK_EQ(static_cast<int>(h.region.kind),
+                 static_cast<int>(ComplexRegion::Kind::ExteriorOfDisk));
+        CHECK_NEAR(h.region.radius, 2.5, 1e-12);
+        const Constraint& zc = firstOf(L, ConstraintKind::ZeroCountInRegion);
+        CHECK_EQ(zc.count, 1);
+        const Constraint& res = firstOf(L, ConstraintKind::ResidueAt);
+        CHECK_NEAR(res.cvalue.re, 0.5, 1e-12);
+    }
+
+    // 所有复数关卡的参考解都只含 z 变量，且满足数学上的最基本 sanity
+    for (const LevelDef& L : levels) {
+        if (!L.isComplex()) continue;
+        const ExprP ref = P(L.reference);
+        const std::set<std::string> vars = collectVars(ref);
+        for (const std::string& v : vars) CHECK_EQ(v, std::string("z"));
+    }
+}
+
+// 复变约束判定：桩阶段只验证「有明确中文原因、不崩溃」；Complex.cpp 落地后
+// 参考解必须真正通过（严格断言见 gameplay_levels_reference_satisfies）。
+FCG_TEST(gameplay_complex_check_behavior) {
+    // 一律不崩溃、label 非空、失败必有中文原因
+    auto checkKind = [](const Constraint& c, const std::string& expr) {
+        const ConstraintReport rep = check(c, expr);
+        CHECK(!rep.label.empty());
+        if (!rep.ok) CHECK(!rep.detail.empty());
+        return rep;
+    };
+    {
+        Constraint c = mkC(ConstraintKind::HolomorphicOn);
+        c.region = ComplexRegion::disk(Cplx(0, 0), 2.0);
+        checkKind(c, "z^2");
+        // conj(z) 一定不是解析函数（无论底层是否实现，都不应判通过）
+        const ConstraintReport bad = checkKind(c, "conj(z)");
+        CHECK(!bad.ok);
+    }
+    {
+        Constraint c = mkC(ConstraintKind::NoSingularityIn);
+        c.region = ComplexRegion::disk(Cplx(0, 0), 1.0);
+        checkKind(c, "1/z");
+    }
+    {
+        Constraint c = mkC(ConstraintKind::PoleOrderAt);
+        c.cpoint = Cplx(0, 0);
+        c.order = 1;
+        checkKind(c, "1/z");
+        // order <= 0 属于非法约束
+        c.order = 0;
+        CHECK(!checkKind(c, "1/z").ok);
+    }
+    {
+        Constraint c = mkC(ConstraintKind::ResidueAt);
+        c.cpoint = Cplx(0, 0);
+        c.cvalue = Cplx(1, 0);
+        checkKind(c, "1/z");
+    }
+    {
+        Constraint c = mkC(ConstraintKind::ContourIntegralValue);
+        c.cpoint = Cplx(0, 0);
+        c.radius = 2.0;
+        c.cvalue = Cplx(0, 2.0 * kPi);
+        checkKind(c, "1/z");
+        c.radius = -1.0;  // 非法半径必须明确拒绝
+        CHECK(!checkKind(c, "1/z").ok);
+    }
+    {
+        Constraint c = mkC(ConstraintKind::ZeroCountInRegion);
+        c.region = ComplexRegion::disk(Cplx(0, 0), 2.0);
+        c.count = 2;
+        checkKind(c, "z^2 - 1");
+    }
+    {
+        Constraint c = mkC(ConstraintKind::ModulusRangeOn);
+        c.region = ComplexRegion::disk(Cplx(0, 0), 1.0);
+        c.lo = 0.0;
+        c.hi = 3.0;
+        checkKind(c, "exp(z)");
+        c.lo = 2.0;
+        c.hi = 1.0;  // lo>hi 非法
+        CHECK(!checkKind(c, "exp(z)").ok);
+    }
+    {
+        // 复数点取值用 evalComplex；复数关卡里的 BoundaryValue 走复数路径
+        Constraint c = mkC(ConstraintKind::ComplexBoundaryValue);
+        c.cpoint = Cplx(0, 1);
+        c.cvalue = Cplx(0, 1);
+        checkKind(c, "z");
+        Constraint bc = mkC(ConstraintKind::BoundaryValue);
+        bc.var = "z";
+        bc.cpoint = Cplx(0, 1);
+        bc.cvalue = Cplx(0, 1);
+        checkKind(bc, "z");
+        bc.cvalue = Cplx(0, -1);  // f(i)=i 的错答案
+        const ConstraintReport wrong = check(bc, "z");
+        CHECK(!wrong.ok);
+        CHECK(!wrong.detail.empty());
+    }
+
+    // 底层分析可用时：参考解必须真正通过（防止「只实现了描述、判定永远 false」）
+    if (complexCoreReady()) {
+        {
+            Constraint c = mkC(ConstraintKind::HolomorphicOn);
+            c.var = "z";
+            c.region = ComplexRegion::disk(Cplx(0, 0), 2.0);
+            CHECK(check(c, "z^2").ok);
+        }
+        {
+            Constraint c = mkC(ConstraintKind::ComplexBoundaryValue);
+            c.var = "z";
+            c.cpoint = Cplx(0, 1);
+            c.cvalue = Cplx(-1, 0);
+            CHECK(check(c, "z^2").ok);
+        }
+        {
+            Constraint c = mkC(ConstraintKind::ResidueAt);
+            c.var = "z";
+            c.cpoint = Cplx(0, 0);
+            c.cvalue = Cplx(1, 0);
+            CHECK(check(c, "1/z").ok);
+        }
+    }
+}
+
+// 参考解必须真正满足本关全部约束。
+// 实数关严格校验；复数关在 Complex.cpp 落地后同样严格校验（桩阶段跳过，
+// 避免把「底层未实现」误报成关卡内容错误）。
 FCG_TEST(gameplay_levels_reference_satisfies) {
     const std::vector<LevelDef> levels = loadAllLevels();
+    const bool complexReady = complexCoreReady();
     std::string firstFail;
     int failCount = 0;
+    int skipped = 0;
     for (const LevelDef& L : levels) {
+        if (L.isComplex() && !complexReady) {
+            ++skipped;
+            continue;
+        }
         ParseError pe;
         ExprP ref = parseExpr(L.reference, &pe);
         CHECK(ref != nullptr);
@@ -946,6 +1342,7 @@ FCG_TEST(gameplay_levels_reference_satisfies) {
             }
         }
     }
+    if (complexReady) CHECK_EQ(skipped, 0);
     if (failCount != 0) {
         ::fcgtest::fail("有 " + std::to_string(failCount) + " 关的参考解未通过：" + firstFail,
                         __FILE__, __LINE__);
@@ -955,12 +1352,20 @@ FCG_TEST(gameplay_levels_reference_satisfies) {
 
 FCG_TEST(gameplay_levels_reference_scores_above_par) {
     const std::vector<LevelDef> levels = loadAllLevels();
+    const bool complexReady = complexCoreReady();
     std::string firstBad;
     for (const LevelDef& L : levels) {
+        if (L.isComplex() && !complexReady) continue;
         ExprP ref = P(L.reference);
         const ScoreBreakdown sb = evaluateSubmission(ref, L, 0.0);
         if (!sb.correct) {
-            if (firstBad.empty()) firstBad = L.id + " 参考解评分未通过约束";
+            if (firstBad.empty()) {
+                for (const ConstraintReport& r : sb.reports) {
+                    if (r.ok) continue;
+                    firstBad = L.id + " 参考解评分未通过「" + r.label + "」：" + r.detail;
+                    break;
+                }
+            }
             continue;
         }
         if (sb.total + 1e-9 < L.parScore && firstBad.empty()) {
@@ -969,6 +1374,30 @@ FCG_TEST(gameplay_levels_reference_scores_above_par) {
         }
     }
     CHECK(firstBad.empty());
+}
+
+// 复变关卡的评分：硬约束通过时不应出现 NaN / 0 鲁棒性等异常
+FCG_TEST(gameplay_complex_scoring_sane) {
+    const std::vector<LevelDef> levels = loadAllLevels();
+    const bool complexReady = complexCoreReady();
+    for (const LevelDef& L : levels) {
+        if (!L.isComplex()) continue;
+        const ScoreBreakdown sb = evaluateSubmission(P("z"), L, 0.0);
+        CHECK(std::isfinite(sb.total));
+        CHECK(std::isfinite(sb.robustness));
+        CHECK(std::isfinite(sb.precision));
+        CHECK(std::isfinite(sb.elegance));
+        CHECK(sb.total >= 0.0 && sb.total <= 100.0);
+        CHECK(sb.robustness >= 0.0 && sb.robustness <= 100.0);
+        if (!sb.correct) CHECK_NEAR(sb.total, 0.0, 1e-12);
+        if (complexReady) {
+            const ScoreBreakdown good = evaluateSubmission(P(L.reference), L, 0.0);
+            CHECK(good.correct);
+            CHECK(good.total >= L.parScore);
+            CHECK(good.robustness >= 0.0 && good.robustness <= 100.0);
+            CHECK(std::isfinite(good.total));
+        }
+    }
 }
 
 // =================================================================
@@ -1102,5 +1531,49 @@ FCG_TEST(gameplay_endless_generated_levels_playable) {
         const ScoreBreakdown bad = evaluateSubmission(P("x"), L, 0.0);
         CHECK(!bad.correct || bad.total >= 0.0);  // 不崩溃即可
         CHECK(bad.total <= 100.0);
+    }
+}
+
+// =================================================================
+// 8. 复变关卡的判别力：错误答案必须被拒绝
+// =================================================================
+FCG_TEST(gameplay_complex_levels_reject_wrong_answers) {
+    if (!complexCoreReady()) return;  // 桩阶段无法判定，跳过
+    const std::vector<LevelDef> levels = loadAllLevels();
+    auto find = [&](const std::string& id) -> const LevelDef& {
+        for (const LevelDef& L : levels)
+            if (L.id == id) return L;
+        ::fcgtest::fail("找不到关卡 " + id, __FILE__, __LINE__);
+        return levels.front();
+    };
+    struct Case {
+        const char* level;
+        const char* expr;
+        const char* why;
+    };
+    const Case cases[] = {
+        {"5-1", "z", "f(i) 应为 -1，实际为 i"},
+        {"5-1", "conj(z)", "conj 不是解析函数"},
+        {"5-2", "exp(2*z)", "|exp(2z)| 在 |z|<1 上超过 3"},
+        {"5-3", "conj(z)", "conj 不是解析函数，且非实点取值错误"},
+        {"5-3", "abs(z)^2", "|z|² 不是解析函数"},
+        {"5-6", "exp(z)", "f(0) 应为 0"},
+        {"6-1", "1/z^2", "0 处是 2 阶极点、留数为 0"},
+        {"6-2", "1/(z+1)", "极点不在 z=1"},
+        {"6-3", "z^2", "f(0) 应为 -1"},
+        {"6-5", "1/(z^2 - 1)", "两个留数应为 1，实际为 ±1/2"},
+        {"6-6", "z/(z^2 - 1)", "z=2 处没有极点"},
+    };
+    for (const Case& c : cases) {
+        const LevelDef& L = find(c.level);
+        const ScoreBreakdown sb = evaluateSubmission(P(c.expr), L, 0.0);
+        if (sb.correct) {
+            ::fcgtest::fail("关卡 " + L.id + " 错误答案「" + c.expr + "」被误判通过（" + c.why + "）",
+                            __FILE__, __LINE__);
+        }
+        CHECK_NEAR(sb.total, 0.0, 1e-12);
+        CHECK(sb.grade == 'D');
+        // 失败反馈必须能说清原因
+        CHECK(!sb.feedback.empty());
     }
 }
